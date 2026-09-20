@@ -1,0 +1,7 @@
+pyyaml
+# --- production swaps ---
+# fastapi
+# uvicorn
+# langgraph
+# langchain-core
+# openai
