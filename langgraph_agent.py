@@ -1,8 +1,8 @@
-"""The same agent built on LangGraph (pip install langgraph langchain-core).
+"""The same agent, rebuilt on LangGraph (pip install langgraph langchain-core).
 
-This mirrors agent.py's think -> route -> act loop, but as an explicit
-graph: visualisable, with battle-tested checkpointing and streaming.
-Run this file to verify the graph builds and executes.
+agent.py's think -> route -> act loop, but as an explicit graph — you get
+visualisation, checkpointing, and streaming from the framework instead of
+hand-rolling them. Run this file to check the graph builds and executes.
 """
 try:
     from langgraph.graph import StateGraph, START, END
@@ -22,7 +22,7 @@ if HAS_LG:
 
     from tools import calculator as calc_fn, search_docs as search_fn
 
-    # LangChain tool wrappers (docstrings become the model-facing description)
+    # thin wrappers — the docstrings are what the model sees when picking tools
     @lc_tool
     def calculator(expression: str) -> str:
         """Evaluate an arithmetic expression, e.g. '12*13'."""
@@ -39,8 +39,8 @@ if HAS_LG:
         messages: Annotated[list, operator.add]   # append-only history
 
     def call_model(state: AgentState):
-        # Production: llm.bind_tools(LG_TOOLS).invoke(state["messages"])
-        # Demo: deterministic stand-in so this runs with no API key.
+        # In prod this would be: llm.bind_tools(LG_TOOLS).invoke(state["messages"])
+        # Here it's a hardcoded stand-in so this runs with no API key.
         last = state["messages"][-1]
         text = last["content"] if isinstance(last, dict) else str(last)
         if "refund" in text.lower() and "window" in text.lower():
@@ -51,8 +51,8 @@ if HAS_LG:
                                "content": "I couldn't find anything about that."}]}
 
     def should_continue(state: AgentState):
-        # With bind_tools, this inspects tool_calls on the last message.
-        # Our demo model answers directly, so we're always done.
+        # With bind_tools you'd check tool_calls on the last message here.
+        # Our demo model just answers directly, so we're always done.
         return END
 
     def build_app():
