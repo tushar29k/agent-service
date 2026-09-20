@@ -1,12 +1,12 @@
-"""ReAct agent, production-shaped: explicit state, think/act nodes, a router,
-loop detection, JSON checkpointing, streaming events, and human-in-the-loop
-approval gates for destructive tools.
+"""ReAct agent, built the way you'd actually ship one: explicit state, a
+think/act loop with a router, loop detection, JSON checkpoints per thread,
+streaming events, and human approval gates before destructive tools.
 
-The "model" is a swappable backend:
+The "brain" is swappable:
   MockBackend   — deterministic rules for demos/tests (NOT intelligent)
   OpenAIBackend — real LLM calls (needs OPENAI_API_KEY; same interface)
 
-# SWAP (production): pass OpenAIBackend() instead of MockBackend().
+# Going to production: pass OpenAIBackend() instead of MockBackend().
 """
 import json
 import os
@@ -15,19 +15,21 @@ import re
 from tools import TOOLS, ToolNode
 
 
-# ---------------------------------------------------------------- backends
+# --- the brain (swappable) ---
 class ModelBackend:
     def think(self, messages, tools):
-        """Return {'thought': str, 'action': {'name', 'args'} | None,
+        """One job: look at the conversation + tools and decide what to do.
+        Return {'thought': str, 'action': {'name', 'args'} | None,
         'answer': str | None}."""
         raise NotImplementedError
 
 
 class MockBackend(ModelBackend):
-    """Deterministic stand-in so the whole loop runs without an API key.
+    """Deterministic stand-in so the whole loop runs with no API key.
 
-    It classifies intent with rules — enough for the bundled eval tasks.
-    A real backend (below) lets the LLM do this thinking.
+    Just rules and regexes — tuned for the bundled eval tasks, definitely
+    not intelligent. The real backend (below) lets the LLM do the thinking
+    instead.
     """
 
     def think(self, messages, tools):
@@ -89,7 +91,7 @@ class MockBackend(ModelBackend):
 
 
 class OpenAIBackend(ModelBackend):
-    """Real backend. pip install openai; export OPENAI_API_KEY."""
+    """The real one. pip install openai, export OPENAI_API_KEY, done."""
 
     def __init__(self, model="gpt-4o-mini"):
         from openai import OpenAI
@@ -112,7 +114,7 @@ class OpenAIBackend(ModelBackend):
         return json.loads(resp.choices[0].message.content)
 
 
-# ---------------------------------------------------------------- agent
+# --- the agent itself ---
 class ReActAgent:
     def __init__(self, backend=None, tools=TOOLS, max_steps=10,
                  checkpoint_dir="checkpoints"):
@@ -124,7 +126,8 @@ class ReActAgent:
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-    # -- persistence: conversations are just thread_ids ------------------
+    # persistence is deliberately boring: one JSON file per thread_id,
+    # that's the whole conversation store
     def _path(self, thread_id):
         safe = re.sub(r"[^\w-]", "_", thread_id)
         return os.path.join(self.checkpoint_dir, f"{safe}.json")
@@ -136,7 +139,7 @@ class ReActAgent:
         p = self._path(thread_id)
         return json.load(open(p)) if os.path.exists(p) else None
 
-    # -- the loop: think -> route -> act -> observe ----------------------
+    # the loop: think -> route -> act -> observe, until done
     def _loop(self, thread_id, state):
         while True:
             state["steps"] += 1
@@ -152,14 +155,15 @@ class ReActAgent:
                 yield self._final(state, d["answer"])
                 return
             action = d["action"]
-            # loop detection: same action 3x in a row -> stuck
+            # cheap stuck-detector: same action 3 times in a row means
+            # we're going in circles
             recent = [m["action"] for m in state["messages"]
                       if m["role"] == "action"][-2:]
             if len(recent) == 2 and all(r == action for r in recent + [action]):
                 yield self._final(state, "Stopped: repeating the same action "
                                          "(loop detected).")
                 return
-            # approval gate: destructive tools pause for a human
+            # destructive tools don't just run — stop here and wait for a human
             if action["name"] in self.destructive:
                 state["pending_action"] = action
                 self._save(thread_id, state)
@@ -186,7 +190,7 @@ class ReActAgent:
         yield from self._loop(thread_id, state)
 
     def approve(self, thread_id, approved):
-        """Resume after an approval gate. approved=True executes the action."""
+        """Resume after an approval gate. approved=True actually runs the action."""
         state = self._load(thread_id)
         action = state.pop("pending_action", None)
         if action is None:
@@ -208,6 +212,7 @@ class ReActAgent:
 
 
 if __name__ == "__main__":
+    # quick smoke test: an FAQ, then a refund that hits the approval gate
     agent = ReActAgent()
     print("--- task 1: faq ---")
     for ev in agent.run("demo-1", "What is the refund window?"):
