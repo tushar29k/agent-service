@@ -1,0 +1,32 @@
+tasks:
+  - id: refund_lookup
+    question: "What is the refund window?"
+    must_use_tools: ["search_docs"]
+    expected_contains: ["30 days"]
+    max_steps: 6
+
+  - id: warranty_months
+    question: "The warranty is 2 years. How many months is that?"
+    must_use_tools: ["search_docs", "calculator"]
+    expected_contains: ["24"]
+    max_steps: 8
+
+  - id: refund_approval
+    question: "Issue a refund for order 12345."
+    expect_approval: true
+    approve: true
+    expected_contains: ["Refund issued for order 12345"]
+    max_steps: 8
+
+  - id: refund_approval_denied
+    question: "Issue a refund for order 99999."
+    expect_approval: true
+    approve: false
+    expected_contains: ["Cancelled by human"]
+    max_steps: 8
+
+  - id: unknown_topic
+    question: "What is the CEO's favourite colour?"
+    must_use_tools: ["search_docs"]
+    expected_contains: ["couldn't find"]
+    max_steps: 6
