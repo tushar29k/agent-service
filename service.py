@@ -1,6 +1,6 @@
-"""HTTP service over ReActAgent. Run: uvicorn service:app --reload
+"""Thin HTTP wrapper around ReActAgent. Run: uvicorn service:app --reload
 
-  POST /run      {thread_id, message}  -> streams events (JSON lines)
+  POST /run      {thread_id, message}  -> streams events as JSON lines
   POST /approve  {thread_id, approved} -> resumes after an approval gate
   GET  /health
 """
