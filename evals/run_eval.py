@@ -1,4 +1,5 @@
-"""Agent eval runner: task success + right tools + approval gates + budgets.
+"""Agent evals: did it succeed, use the right tools, respect the approval
+gates, and stay within its step budget?
 
     python3 evals/run_eval.py
 """
