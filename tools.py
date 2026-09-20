@@ -1,9 +1,13 @@
-"""Tools: the agent's hands. Each tool has a name, a docstring-as-UX, a timeout,
-and a destructive flag (destructive tools pause for human approval).
+"""The agent's hands.
 
-Tool design rules (see guide 08, Part 3):
+Each tool has a name, a docstring (which doubles as what the model sees when
+picking tools — so write it like you'd explain it to a new hire), a timeout,
+and a destructive flag. Destructive tools pause for human approval first.
+
+Rules of thumb (from guide 08, part 3):
 - docstring = when to use + args + return shape + failure modes
-- bounded outputs, machine-readable errors, every tool gets a timeout
+- keep outputs small, errors machine-readable, and never let a tool run
+  without a timeout
 """
 import ast
 import operator
@@ -11,7 +15,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 
-# ---------------------------------------------------------------- knowledge
+# tiny fake knowledge base for the search_docs demo
 KNOWLEDGE = {
     "refund": ("Refund policy: full refunds are available within 30 days of "
                "purchase for unused products in original packaging."),
@@ -23,8 +27,9 @@ KNOWLEDGE = {
 
 
 def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression. Args: expression, e.g. '12*13'.
-    Returns the result as a string, or ERROR: ... on bad input."""
+    """Evaluate an arithmetic expression, e.g. '12*13'. Args: expression.
+    Returns the result as a string, or ERROR: ... on bad input.
+    Safe by construction — it walks the AST, never evals."""
     allowed = {ast.Add: operator.add, ast.Sub: operator.sub,
                ast.Mult: operator.mul, ast.Div: operator.truediv,
                ast.Pow: operator.pow, ast.Mod: operator.mod}
@@ -47,21 +52,22 @@ def calculator(expression: str) -> str:
 
 
 def search_docs(query: str) -> str:
-    """Search the company knowledge base. Args: query — keywords.
+    """Search the company knowledge base. Args: query — just keywords.
     Returns the best matching entry, or NO_RESULTS — never invent content."""
     toks = set(query.lower().split())
     best, best_score = "NO_RESULTS", 0
     for key, text in KNOWLEDGE.items():
         score = len(toks & set(text.lower().split()))
         if key in query.lower():
-            score += 3                      # topic keyword = strong signal
+            score += 3                      # an exact topic keyword counts triple
         if score > best_score:
             best, best_score = text, score
     return best
 
 
 def issue_refund(order_id: str) -> str:
-    """Issue a refund for an order. Args: order_id. DESTRUCTIVE — moves money."""
+    """Issue a refund for an order. Args: order_id. DESTRUCTIVE — this one
+    moves money, so the agent stops for human approval first."""
     if not re.fullmatch(r"\w+", order_id):
         return "ERROR: invalid order id"
     return f"Refund issued for order {order_id}."
@@ -80,12 +86,13 @@ TOOLS = [
     Tool("calculator", calculator.__doc__, calculator),
     Tool("search_docs", search_docs.__doc__, search_docs),
     Tool("issue_refund", issue_refund.__doc__, issue_refund,
-         destructive=True),                 # approval gate in agent.py
+         destructive=True),                 # the approval gate itself lives in agent.py
 ]
 
 
 class ToolNode:
-    """Executes tool calls with timeouts and machine-readable errors."""
+    """Runs tool calls with a timeout. If a tool blows up, the agent gets an
+    error string back — never a crashed process."""
 
     def __init__(self, tools):
         self.by_name = {t.name: t for t in tools}
