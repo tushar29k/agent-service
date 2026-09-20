@@ -1,0 +1,1 @@
+{"messages": [{"role": "user", "content": "Issue a refund for order 777."}, {"role": "action", "action": {"name": "issue_refund", "args": {"order_id": "777"}}}, {"role": "observation", "content": "Refund issued for order 777."}, {"role": "assistant", "content": "Refund issued for order 777."}], "steps": 2}
