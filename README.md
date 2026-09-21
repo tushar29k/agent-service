@@ -2,6 +2,11 @@
 
 A ReAct-style agent you can actually run, break, and fix — no LLM API key needed.
 
+## Live demo
+
+**[https://tushar29k-agent-service.onrender.com](https://tushar29k-agent-service.onrender.com)** — Chat with the ReAct agent: watch thoughts and tool calls stream, and approve or deny the destructive actions yourself.
+> Hosted on Render's free tier — the first visit after a while can take ~30s while the instance wakes up.
+
 ## The idea
 
 Every "AI agent" tutorial stops right where the interesting part starts: the loop. Think, pick a tool, run it, read the result, repeat — plus all the production plumbing around it. What happens when the agent gets stuck calling the same tool forever? Who approves the scary actions? How do you resume after a crash? How do you know it still works after you change something?
