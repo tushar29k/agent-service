@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>agent-service — demo</title>
+<style>
+:root{--bg:#0B1424;--bg2:#0E1A2E;--line:#182742;--cyan:#22D3EE;--teal:#2DD4BF;--violet:#A78BFA;--pink:#F472B6;--gold:#F4A259;--text:#E6EDF3;--muted:#8B98A9}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;line-height:1.6;padding:2rem 1.2rem;max-width:860px;margin:0 auto}
+header{display:flex;align-items:center;gap:.8rem;margin-bottom:.4rem}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--teal);box-shadow:0 0 10px var(--teal)}
+h1{font-size:1.4rem}h1 span{color:var(--cyan)}
+.sub{color:var(--muted);font-size:.9rem;margin-bottom:1.4rem}
+#log{display:flex;flex-direction:column;gap:.7rem;margin-bottom:1.2rem;min-height:200px}
+.msg{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:.9rem 1.1rem;animation:fade .3s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}}
+.msg.user{align-self:flex-end;border-color:var(--cyan);max-width:85%}
+.msg.thought{border-left:3px solid var(--violet);color:var(--muted);font-style:italic;font-size:.92rem}
+.msg.tool{border-left:3px solid var(--cyan);font-size:.92rem}
+.msg.tool b{color:var(--cyan)}
+.msg.result{font-size:.9rem}.msg.result pre{background:#081020;border-radius:8px;padding:.7rem;overflow-x:auto;font-size:.82rem;margin-top:.4rem}
+.msg.final{border-color:var(--teal);box-shadow:0 0 24px rgba(45,212,191,.12)}
+.msg.final .ans{font-size:1.02rem}
+.msg .steps{color:var(--muted);font-size:.78rem;margin-top:.5rem}
+.appr{display:flex;gap:.7rem;margin-top:.7rem}
+.appr button{padding:.5rem 1.3rem;border-radius:999px;border:1px solid var(--line);cursor:pointer;font-weight:600}
+.appr .yes{background:var(--teal);color:#06222b;border:none}
+.appr .no{background:transparent;color:var(--pink);border-color:var(--pink)}
+.row{display:flex;gap:.7rem}
+input[type=text]{flex:1;background:var(--bg2);border:1px solid var(--line);border-radius:999px;color:var(--text);padding:.75rem 1.2rem;font-size:.95rem;font-family:inherit}
+input:focus{outline:none;border-color:var(--cyan)}
+button.go{background:linear-gradient(90deg,var(--cyan),var(--teal));border:none;color:#06222b;font-weight:700;padding:.75rem 1.6rem;border-radius:999px;cursor:pointer}
+button.go:disabled{opacity:.5;cursor:wait}
+.warn{color:var(--gold);font-size:.85rem}
+</style>
+</head>
+<body>
+<header><span class="dot" id="health"></span><h1>agent-service <span>demo</span></h1></header>
+<p class="sub">A ReAct agent that thinks, calls tools, and asks for approval before destructive actions. Try: <i>"search for the Q3 report and summarize it"</i>.</p>
+<div id="log"></div>
+<div class="row">
+  <input type="text" id="msg" placeholder="Give the agent a task…" onkeydown="if(event.key==='Enter')send()" />
+  <button class="go" id="sendbtn" onclick="send()">Run →</button>
+</div>
+
+<script>
+var threadId = 'demo-' + Math.random().toString(36).slice(2, 8);
+var log = document.getElementById('log');
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function add(html, cls){var d=document.createElement('div');d.className='msg '+cls;d.innerHTML=html;log.appendChild(d);d.scrollIntoView({behavior:'smooth',block:'nearest'});return d}
+
+fetch('/health').then(function(){document.getElementById('health').classList.add('ok')}).catch(function(){});
+
+function send(){
+  var input=document.getElementById('msg');
+  var text=input.value.trim(); if(!text) return;
+  input.value='';
+  add(esc(text),'user');
+  runStream('/run',{thread_id:threadId,message:text});
+}
+
+function runStream(url, body){
+  var btn=document.getElementById('sendbtn'); btn.disabled=true;
+  fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+  .then(function(res){
+    var reader=res.body.getReader(); var dec=new TextDecoder(); var buf='';
+    function pump(){
+      return reader.read().then(function(x){
+        if(x.done){btn.disabled=false;return}
+        buf+=dec.decode(x.value,{stream:true});
+        var lines=buf.split('\n'); buf=lines.pop();
+        lines.forEach(function(ln){ if(ln.trim()) handle(JSON.parse(ln)) });
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function(e){add('Error: '+esc(e.message),'result');btn.disabled=false});
+}
+
+function handle(ev){
+  if(ev.type==='thought'){ add('💭 '+esc(ev.thought),'thought'); }
+  else if(ev.type==='tool_result'){ add('🔧 <b>'+esc(ev.tool)+'</b><pre>'+esc(typeof ev.result==='string'?ev.result:JSON.stringify(ev.result,null,2))+'</pre>','result'); }
+  else if(ev.type==='approval_required'){
+    var d=add('<span class="warn">⚠️ approval needed:</span> <b>'+esc(ev.action.name)+'</b> '+esc(JSON.stringify(ev.action.args))+'<br><span class="warn">'+esc(ev.reason)+'</span><div class="appr"><button class="yes">Approve</button><button class="no">Deny</button></div>','tool');
+    d.querySelector('.yes').onclick=function(){d.querySelector('.appr').remove();runStream('/approve',{thread_id:threadId,approved:true})};
+    d.querySelector('.no').onclick=function(){d.querySelector('.appr').remove();runStream('/approve',{thread_id:threadId,approved:false})};
+  }
+  else if(ev.type==='final'){ add('<div class="ans">'+esc(ev.answer)+'</div><div class="steps">'+ev.steps+' steps</div>','final'); }
+}
+</script>
+</body>
+</html>
