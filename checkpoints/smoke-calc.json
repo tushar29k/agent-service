@@ -1,0 +1,1 @@
+{"messages": [{"role": "user", "content": "What is 12*13?"}, {"role": "action", "action": {"name": "calculator", "args": {"expression": ""}}}, {"role": "observation", "content": "ERROR: bad expression (invalid syntax (<unknown>, line 0))"}, {"role": "assistant", "content": "The result is ERROR: bad expression (invalid syntax (<unknown>, line 0))."}], "steps": 2}

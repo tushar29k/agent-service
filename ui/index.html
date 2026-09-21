@@ -3,47 +3,119 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>agent-service — demo</title>
+<title>agent-service — mission control</title>
 <style>
-:root{--bg:#0B1424;--bg2:#0E1A2E;--line:#182742;--cyan:#22D3EE;--teal:#2DD4BF;--violet:#A78BFA;--pink:#F472B6;--gold:#F4A259;--text:#E6EDF3;--muted:#8B98A9}
+/* phosphor terminal: readable first, moody second */
+:root{
+  --bg:#040b07; --panel:#071309; --panel2:#0a1c11; --line:#14402a;
+  --green:#4ade80; --bright:#c9f5da; --dim:#6f927f;
+  --amber:#fbbf24; --red:#f87171; --text:#d8ecdf;
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;line-height:1.6;padding:2rem 1.2rem;max-width:860px;margin:0 auto}
-header{display:flex;align-items:center;gap:.8rem;margin-bottom:.4rem}
-.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
-.dot.ok{background:var(--teal);box-shadow:0 0 10px var(--teal)}
-h1{font-size:1.4rem}h1 span{color:var(--cyan)}
-.sub{color:var(--muted);font-size:.9rem;margin-bottom:1.4rem}
-#log{display:flex;flex-direction:column;gap:.7rem;margin-bottom:1.2rem;min-height:200px}
-.msg{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:.9rem 1.1rem;animation:fade .3s ease}
-@keyframes fade{from{opacity:0;transform:translateY(6px)}}
-.msg.user{align-self:flex-end;border-color:var(--cyan);max-width:85%}
-.msg.thought{border-left:3px solid var(--violet);color:var(--muted);font-style:italic;font-size:.92rem}
-.msg.tool{border-left:3px solid var(--cyan);font-size:.92rem}
-.msg.tool b{color:var(--cyan)}
-.msg.result{font-size:.9rem}.msg.result pre{background:#081020;border-radius:8px;padding:.7rem;overflow-x:auto;font-size:.82rem;margin-top:.4rem}
-.msg.final{border-color:var(--teal);box-shadow:0 0 24px rgba(45,212,191,.12)}
-.msg.final .ans{font-size:1.02rem}
-.msg .steps{color:var(--muted);font-size:.78rem;margin-top:.5rem}
-.appr{display:flex;gap:.7rem;margin-top:.7rem}
-.appr button{padding:.5rem 1.3rem;border-radius:999px;border:1px solid var(--line);cursor:pointer;font-weight:600}
-.appr .yes{background:var(--teal);color:#06222b;border:none}
-.appr .no{background:transparent;color:var(--pink);border-color:var(--pink)}
-.row{display:flex;gap:.7rem}
-input[type=text]{flex:1;background:var(--bg2);border:1px solid var(--line);border-radius:999px;color:var(--text);padding:.75rem 1.2rem;font-size:.95rem;font-family:inherit}
-input:focus{outline:none;border-color:var(--cyan)}
-button.go{background:linear-gradient(90deg,var(--cyan),var(--teal));border:none;color:#06222b;font-weight:700;padding:.75rem 1.6rem;border-radius:999px;cursor:pointer}
-button.go:disabled{opacity:.5;cursor:wait}
-.warn{color:var(--gold);font-size:.85rem}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:ui-monospace,'Cascadia Code','JetBrains Mono',Menlo,Consolas,monospace;
+  line-height:1.65; padding:1.6rem 1.1rem; max-width:920px; margin:0 auto;
+  font-size:15px;
+}
+/* scanlines: faint enough to stay readable */
+body::after{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:60;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, transparent 1px 3px);
+  opacity:.35;
+}
+/* faint vignette so the edges fall away */
+body::before{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:59;
+  background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.5) 100%);
+}
+header.top{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-bottom:.3rem}
+.dot{width:10px;height:10px;border-radius:50%;background:#3a4a41}
+.dot.ok{background:var(--green);box-shadow:0 0 10px var(--green)}
+h1{font-size:1.15rem;letter-spacing:2px;color:var(--bright);text-shadow:0 0 12px rgba(74,222,128,.4)}
+h1 span{color:var(--green)}
+.sys{margin-left:auto;color:var(--dim);font-size:.78rem;letter-spacing:1px}
+.sub{color:var(--dim);font-size:.85rem;margin:.5rem 0 1.2rem;max-width:70ch}
+.sub b{color:var(--amber);font-weight:normal}
+/* console panel */
+.console{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden;
+  box-shadow:0 0 40px rgba(74,222,128,.06), inset 0 0 60px rgba(0,0,0,.35)}
+.console-bar{display:flex;align-items:center;gap:.5rem;padding:.5rem .9rem;background:var(--panel2);
+  border-bottom:1px solid var(--line);color:var(--dim);font-size:.75rem;letter-spacing:2px}
+.console-bar .lights{margin-left:auto;display:flex;gap:.4rem}
+.console-bar .lights i{width:9px;height:9px;border-radius:50%;background:#1d3325}
+.console-bar .lights i:first-child{background:var(--green);box-shadow:0 0 6px var(--green)}
+#log{display:flex;flex-direction:column;gap:.55rem;padding:1rem 1.1rem;min-height:220px;max-height:60vh;overflow-y:auto}
+.msg{animation:fade .25s ease;word-break:break-word}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}}
+.msg .p{color:var(--green);font-weight:bold}
+.msg.user{color:var(--bright)}
+.msg.thought{color:var(--dim)}
+.msg.thought .tag{color:#3f7a54}
+.msg.tool{border-left:2px solid var(--green);padding-left:.7rem;color:var(--text)}
+.msg.tool b{color:var(--green);font-weight:normal}
+.msg.result{font-size:.85rem}
+.msg.result pre{background:#020604;border:1px solid var(--line);border-radius:6px;padding:.6rem .8rem;
+  overflow-x:auto;font-size:.8rem;margin-top:.35rem;color:var(--bright)}
+.msg.final{border:1px solid var(--green);border-radius:8px;padding:.8rem 1rem;background:rgba(74,222,128,.05);
+  box-shadow:0 0 22px rgba(74,222,128,.12)}
+.msg.final .ans{color:var(--bright);font-size:1rem}
+.msg.final .steps{color:var(--dim);font-size:.75rem;margin-top:.4rem;letter-spacing:1px}
+.msg.gate{border:1px dashed var(--amber);border-radius:8px;padding:.8rem 1rem;background:rgba(251,191,36,.05)}
+.warn{color:var(--amber)}
+.appr{display:flex;gap:.7rem;margin-top:.7rem;flex-wrap:wrap}
+.appr button{padding:.5rem 1.2rem;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:bold;letter-spacing:1px}
+.appr .yes{background:var(--green);color:#04140a;border:1px solid var(--green)}
+.appr .yes:hover{box-shadow:0 0 14px rgba(74,222,128,.5)}
+.appr .no{background:transparent;color:var(--red);border:1px solid var(--red)}
+.appr .no:hover{background:rgba(248,113,113,.1)}
+/* input row */
+.row{display:flex;gap:.7rem;margin-top:1rem;align-items:stretch}
+.prompt{align-self:center;color:var(--green);font-weight:bold;font-size:1.1rem;padding-left:.2rem}
+input[type=text]{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--bright);
+  padding:.75rem 1rem;font-size:.95rem;font-family:inherit;caret-color:var(--green);min-width:0}
+input::placeholder{color:#3d5a4a}
+input:focus{outline:none;border-color:var(--green);box-shadow:0 0 12px rgba(74,222,128,.18)}
+button.go{background:var(--green);border:1px solid var(--green);color:#04140a;font-family:inherit;
+  font-weight:bold;letter-spacing:1px;padding:.75rem 1.5rem;border-radius:8px;cursor:pointer;white-space:nowrap}
+button.go:hover{box-shadow:0 0 16px rgba(74,222,128,.45)}
+button.go:disabled{opacity:.45;cursor:wait;box-shadow:none}
+.cursor{display:inline-block;width:.6em;height:1.05em;background:var(--green);vertical-align:-2px;
+  animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.foot{margin-top:1rem;color:#3d5a4a;font-size:.75rem;letter-spacing:1px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:.3rem}
+@media (max-width:640px){
+  body{padding:1rem .7rem;font-size:14px}
+  .row{flex-wrap:wrap}.prompt{display:none}
+  input[type=text]{flex:1 1 100%}
+  button.go{flex:1}
+  #log{max-height:55vh}
+}
+@media (prefers-reduced-motion:reduce){
+  .cursor{animation:none}
+  .msg{animation:none}
+}
 </style>
 </head>
 <body>
-<header><span class="dot" id="health"></span><h1>agent-service <span>demo</span></h1></header>
-<p class="sub">A ReAct agent that thinks, calls tools, and asks for approval before destructive actions. Try: <i>"search for the Q3 report and summarize it"</i>.</p>
-<div id="log"></div>
-<div class="row">
-  <input type="text" id="msg" placeholder="Give the agent a task…" onkeydown="if(event.key==='Enter')send()" />
-  <button class="go" id="sendbtn" onclick="send()">Run →</button>
+<header class="top">
+  <span class="dot" id="health"></span>
+  <h1>AGENT-SERVICE <span>// MISSION CONTROL</span></h1>
+  <span class="sys">SYS.STATUS: <span id="sysstat">BOOTING…</span> <span class="cursor"></span></span>
+</header>
+<p class="sub">ReAct agent on the wire: it thinks, calls tools, and halts for human approval before anything destructive. Try <b>issue a refund for order 12345</b> to trip the approval gate.</p>
+
+<div class="console">
+  <div class="console-bar"><span>CONSOLE // LIVE FEED</span><span class="lights"><i></i><i></i><i></i></span></div>
+  <div id="log"></div>
 </div>
+
+<div class="row">
+  <span class="prompt">❯</span>
+  <input type="text" id="msg" placeholder="enter task… e.g. issue a refund for order 12345" onkeydown="if(event.key==='Enter')send()" />
+  <button class="go" id="sendbtn" onclick="send()">EXECUTE</button>
+</div>
+<div class="foot"><span>stream: ndjson / thread persists via checkpoints</span><span>endpoints: /run · /approve · /health</span></div>
 
 <script>
 var threadId = 'demo-' + Math.random().toString(36).slice(2, 8);
@@ -51,13 +123,18 @@ var log = document.getElementById('log');
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function add(html, cls){var d=document.createElement('div');d.className='msg '+cls;d.innerHTML=html;log.appendChild(d);d.scrollIntoView({behavior:'smooth',block:'nearest'});return d}
 
-fetch('/health').then(function(){document.getElementById('health').classList.add('ok')}).catch(function(){});
+fetch('/health').then(function(){
+  document.getElementById('health').classList.add('ok');
+  document.getElementById('sysstat').textContent = 'ONLINE';
+}).catch(function(){
+  document.getElementById('sysstat').textContent = 'OFFLINE';
+});
 
 function send(){
   var input=document.getElementById('msg');
   var text=input.value.trim(); if(!text) return;
   input.value='';
-  add(esc(text),'user');
+  add('<span class="p">❯</span> run "<b>'+esc(text)+'</b>"','user');
   runStream('/run',{thread_id:threadId,message:text});
 }
 
@@ -76,18 +153,18 @@ function runStream(url, body){
       });
     }
     return pump();
-  }).catch(function(e){add('Error: '+esc(e.message),'result');btn.disabled=false});
+  }).catch(function(e){add('[error] '+esc(e.message),'result');btn.disabled=false});
 }
 
 function handle(ev){
-  if(ev.type==='thought'){ add('💭 '+esc(ev.thought),'thought'); }
-  else if(ev.type==='tool_result'){ add('🔧 <b>'+esc(ev.tool)+'</b><pre>'+esc(typeof ev.result==='string'?ev.result:JSON.stringify(ev.result,null,2))+'</pre>','result'); }
+  if(ev.type==='thought'){ add('<span class="tag">[thought]</span> '+esc(ev.thought),'thought'); }
+  else if(ev.type==='tool_result'){ add('<span class="p">[tool :: '+esc(ev.tool)+']</span><pre>'+esc(typeof ev.result==='string'?ev.result:JSON.stringify(ev.result,null,2))+'</pre>','result'); }
   else if(ev.type==='approval_required'){
-    var d=add('<span class="warn">⚠️ approval needed:</span> <b>'+esc(ev.action.name)+'</b> '+esc(JSON.stringify(ev.action.args))+'<br><span class="warn">'+esc(ev.reason)+'</span><div class="appr"><button class="yes">Approve</button><button class="no">Deny</button></div>','tool');
-    d.querySelector('.yes').onclick=function(){d.querySelector('.appr').remove();runStream('/approve',{thread_id:threadId,approved:true})};
-    d.querySelector('.no').onclick=function(){d.querySelector('.appr').remove();runStream('/approve',{thread_id:threadId,approved:false})};
+    var d=add('<span class="warn">[!] APPROVAL REQUIRED</span> — <b>'+esc(ev.action.name)+'</b> '+esc(JSON.stringify(ev.action.args))+'<br><span class="warn">'+esc(ev.reason)+'</span><div class="appr"><button class="yes">[Y] AUTHORIZE</button><button class="no">[N] DENY</button></div>','gate');
+    d.querySelector('.yes').onclick=function(){d.querySelector('.appr').remove();add('<span class="p">[auth]</span> approved by operator','thought');runStream('/approve',{thread_id:threadId,approved:true})};
+    d.querySelector('.no').onclick=function(){d.querySelector('.appr').remove();add('<span class="warn">[auth]</span> denied by operator','thought');runStream('/approve',{thread_id:threadId,approved:false})};
   }
-  else if(ev.type==='final'){ add('<div class="ans">'+esc(ev.answer)+'</div><div class="steps">'+ev.steps+' steps</div>','final'); }
+  else if(ev.type==='final'){ add('<span class="p">» RESULT</span><div class="ans">'+esc(ev.answer)+'</div><div class="steps">— '+ev.steps+' steps · thread '+esc(threadId)+'</div>','final'); }
 }
 </script>
 </body>
