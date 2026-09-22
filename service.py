@@ -12,9 +12,9 @@ try:
 except ImportError as e:
     raise SystemExit("pip install fastapi uvicorn  (then re-run)") from e
 
-from agent import ReActAgent
+from agent import ReActAgent, make_backend
 
-agent = ReActAgent()
+agent = ReActAgent(backend=make_backend())  # AGENT_BACKEND=openai for the real model
 app = FastAPI(title="agent-service")
 
 

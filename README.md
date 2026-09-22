@@ -48,6 +48,20 @@ What you'll see:
 - `agent.py` runs two demos. Task 1 ("What is the refund window?") thinks, calls `search_docs`, and answers "Based on the knowledge base: Refund policy: full refunds are available within 30 days…". Task 2 ("Issue a refund for order 12345") thinks, then stops with `approval_required` for `issue_refund` — and the "approve it" step runs the refund and reports "Refund issued for order 12345."
 - `evals/run_eval.py` prints a table of the 5 tasks with the tools each used, ending in `5/5 tasks passed`.
 
+### Using a real model
+
+```bash
+pip install openai          # (already in requirements.txt under "production swaps")
+export OPENAI_API_KEY=...   # your key
+AGENT_BACKEND=openai python3 agent.py   # same FAQ demo, native function calling
+```
+
+The tools become OpenAI function schemas automatically (arg names/types come
+from the function signatures), the model picks tools, and its `tool_calls`
+parse back into the same actions the loop already runs. `OPENAI_MODEL`
+overrides the default `gpt-4o-mini`. The mock stays the default — nothing
+changes unless you set `AGENT_BACKEND`.
+
 The API needs `pip install fastapi uvicorn`:
 
 ```bash

@@ -4,10 +4,12 @@ streaming events, and human approval gates before destructive tools.
 
 The "brain" is swappable:
   MockBackend   — deterministic rules for demos/tests (NOT intelligent)
-  OpenAIBackend — real LLM calls (needs OPENAI_API_KEY; same interface)
+  OpenAIBackend — real LLM via native function calling (needs OPENAI_API_KEY)
 
-# Going to production: pass OpenAIBackend() instead of MockBackend().
+# Run the FAQ demo on the real model: AGENT_BACKEND=openai python3 agent.py
+# (needs: pip install openai, export OPENAI_API_KEY)
 """
+import inspect
 import json
 import os
 import re
@@ -91,27 +93,97 @@ class MockBackend(ModelBackend):
 
 
 class OpenAIBackend(ModelBackend):
-    """The real one. pip install openai, export OPENAI_API_KEY, done."""
+    """Native function calling: the Tool dataclasses become function
+    schemas, the model picks tools, and tool_calls parse back into the
+    same {'name', 'args'} actions the loop already understands."""
 
-    def __init__(self, model="gpt-4o-mini"):
-        from openai import OpenAI
+    def __init__(self, model=None):
+        try:
+            from openai import OpenAI
+        except ImportError as e:
+            raise SystemExit(
+                "pip install openai  (AGENT_BACKEND=openai needs the package)"
+            ) from e
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "AGENT_BACKEND=openai but no OPENAI_API_KEY in the environment")
         self.client = OpenAI()
-        self.model = model
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
     def think(self, messages, tools):
-        sys = ("You are a ReAct agent. Reply with ONLY a JSON object: "
-               '{"thought": "...", "action": {"name": "...", "args": {...}} } '
-               'or {"thought": "...", "answer": "..."}. '
-               "Tools: " + ", ".join(f"{t.name}: {t.description}" for t in tools))
-        flat = "\n".join(f"{m['role']}: {m.get('content', m.get('action'))}"
-                         for m in messages)
+        sys = ("You are a ReAct agent: answer the user, using the provided "
+               "tools whenever a step needs one. If a request is destructive "
+               "(like issuing a refund), still pick the tool — a human "
+               "approval gate runs afterwards, that's not your call.")
+        chat, n = [], 0
+        for m in messages:
+            r = m["role"]
+            if r == "action":
+                n += 1
+                a = m["action"]
+                chat.append({"role": "assistant", "content": None,
+                             "tool_calls": [{"id": f"call_{n}", "type": "function",
+                                             "function": {"name": a["name"],
+                                                          "arguments": json.dumps(a["args"])}}]})
+            elif r == "observation":
+                # each observation answers the tool call right before it
+                chat.append({"role": "tool", "tool_call_id": f"call_{n}",
+                             "content": m["content"]})
+            else:  # user / assistant
+                chat.append({"role": r, "content": m["content"]})
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "system", "content": sys},
-                      {"role": "user", "content": flat}],
-            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": sys}] + chat,
+            tools=_tool_schemas(tools),
+            tool_choice="auto",
             temperature=0)
-        return json.loads(resp.choices[0].message.content)
+        msg = resp.choices[0].message
+        if msg.tool_calls:
+            tc = msg.tool_calls[0]  # one action per think — the loop asks again
+            return {"thought": msg.content or f"Calling {tc.function.name}.",
+                    "action": {"name": tc.function.name,
+                               "args": json.loads(tc.function.arguments or "{}")},
+                    "answer": None}
+        return {"thought": msg.content or "Answering directly.",
+                "action": None,
+                "answer": msg.content or "No answer returned by the model."}
+
+
+def _tool_schemas(tools):
+    """Turn the Tool dataclasses into OpenAI function schemas.
+
+    Arg names/types come from each tool function's signature, so new
+    tools get wired in with zero extra code."""
+    schemas = []
+    for t in tools:
+        props, required = {}, []
+        for p in inspect.signature(t.func).parameters.values():
+            if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+                continue
+            props[p.name] = {"type": {str: "string", int: "integer",
+                                      float: "number",
+                                      bool: "boolean"}.get(p.annotation,
+                                                            "string")}
+            if p.default is p.empty:
+                required.append(p.name)
+        schemas.append({"type": "function",
+                        "function": {"name": t.name,
+                                     "description": t.description,
+                                     "parameters": {"type": "object",
+                                                    "properties": props,
+                                                    "required": required}}})
+    return schemas
+
+
+# --- pick the brain: mock is the default, env flips it to openai ---
+def make_backend(name=None):
+    """'mock' (default) or 'openai'. AGENT_BACKEND env var picks for you."""
+    name = name or os.environ.get("AGENT_BACKEND", "mock")
+    if name == "mock":
+        return MockBackend()
+    if name == "openai":
+        return OpenAIBackend()
+    raise ValueError(f"unknown backend '{name}' — want 'mock' or 'openai'")
 
 
 # --- the agent itself ---
@@ -213,7 +285,8 @@ class ReActAgent:
 
 if __name__ == "__main__":
     # quick smoke test: an FAQ, then a refund that hits the approval gate
-    agent = ReActAgent()
+    # (AGENT_BACKEND=openai runs this same demo on the real model)
+    agent = ReActAgent(backend=make_backend())
     print("--- task 1: faq ---")
     for ev in agent.run("demo-1", "What is the refund window?"):
         print(ev["type"], "->", str(ev.get("answer") or ev.get("thought") or ev.get("result"))[:80])
