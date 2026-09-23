@@ -3,10 +3,15 @@ think/act loop with a router, loop detection, JSON checkpoints per thread,
 streaming events, and human approval gates before destructive tools.
 
 The "brain" is swappable:
-  MockBackend   — deterministic rules for demos/tests (NOT intelligent)
-  OpenAIBackend — real LLM via native function calling (needs OPENAI_API_KEY)
+  MockBackend        — deterministic rules for demos/tests (NOT intelligent)
+  MockReActBackend   — same rules, but answers in ReAct text so the
+                       Action-line parser gets exercised with no API key
+  OpenAIBackend      — real LLM via native function calling (needs OPENAI_API_KEY)
+  ReActPromptBackend — real LLM via a text Thought/Action/Observation loop,
+                       parsed back into the same actions (needs OPENAI_API_KEY)
 
 # Run the FAQ demo on the real model: AGENT_BACKEND=openai python3 agent.py
+# AGENT_BACKEND=react runs the same demo through the ReAct-prompt backend.
 # (needs: pip install openai, export OPENAI_API_KEY)
 """
 import inspect
@@ -175,15 +180,131 @@ def _tool_schemas(tools):
     return schemas
 
 
-# --- pick the brain: mock is the default, env flips it to openai ---
+_RE_ACTION = re.compile(r"^Action:\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$",
+                        re.M | re.S)
+_RE_ANSWER = re.compile(r"^Answer:\s*(.*?)\s*$", re.M | re.S)
+_RE_THOUGHT = re.compile(r"^Thought:\s*(.*?)\s*$", re.M | re.S)
+
+
+def _parse_react_step(text, tools):
+    """Turn one ReAct text block back into the think() dict the loop wants.
+
+    Text like 'Thought: ...\\nAction: search_docs({"query": "refund"})'
+    becomes {'thought', 'action': {'name', 'args'}} — the exact same shape
+    native function calling produces, so the loop can't tell them apart.
+    """
+    tool_names = {t.name for t in tools}
+    thought = _RE_THOUGHT.search(text)
+    thought = thought.group(1) if thought else text.strip()[:120]
+    m = _RE_ACTION.search(text)
+    if m:
+        name, raw = m.group(1), m.group(2).strip()
+        if name not in tool_names:
+            # never let a hallucinated tool reach the runner — end the run
+            return {"thought": thought, "action": None,
+                    "answer": f"I can't use '{name}': not one of my tools."}
+        try:
+            args = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            # garbled args are worse than no action — answer instead
+            return {"thought": thought, "action": None, "answer": text.strip()}
+        return {"thought": thought,
+                "action": {"name": name, "args": args}, "answer": None}
+    m = _RE_ANSWER.search(text)
+    if m:
+        return {"thought": thought, "action": None, "answer": m.group(1)}
+    # model went off-format — safest is to answer with what it said
+    return {"thought": thought, "action": None, "answer": text.strip()}
+
+
+def _react_prompt(messages, tools):
+    """One prompt: tool list + instructions + the whole transcript so far."""
+    tool_list = "\n".join(
+        f"- {t.name}: {t.description.split('.')[0]}. "
+        f"Args: {', '.join(inspect.signature(t.func).parameters)}"
+        for t in tools)
+    lines = []
+    for m in messages:
+        r = m["role"]
+        if r == "user":
+            lines.append(f"User: {m['content']}")
+        elif r == "action":
+            a = m["action"]
+            lines.append(f"Action: {a['name']}({json.dumps(a['args'])})")
+        elif r == "observation":
+            lines.append(f"Observation: {m['content']}")
+        elif r == "assistant":
+            lines.append(f"Assistant: {m['content']}")
+    transcript = "\n".join(lines)
+    return (
+        "You are a ReAct agent: answer the user, using tools when a step "
+        "needs one. Tools:\n" + tool_list +
+        "\n\nReply with exactly one step, in this format and nothing else:\n"
+        "Thought: <one line of reasoning>\n"
+        "Action: tool_name({\"arg\": value})\n"
+        "or:\n"
+        "Thought: <one line of reasoning>\n"
+        "Answer: <final answer to the user>\n"
+        "Only use tools from the list above. If a request is destructive "
+        "(like issuing a refund), still pick the tool — a human approval "
+        "gate runs afterwards, that's not your call.\n\n" + transcript +
+        "\n\nYour next step:")
+
+
+class ReActPromptBackend(ModelBackend):
+    """ReAct as pure text: the model writes Thought/Action lines, we parse
+    the Action line back into {'name', 'args'} — the same shape as native
+    function calling, so the loop runs identically either way."""
+
+    def __init__(self, model=None):
+        try:
+            from openai import OpenAI
+        except ImportError as e:
+            raise SystemExit(
+                "pip install openai  (AGENT_BACKEND=react needs the package)"
+            ) from e
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "AGENT_BACKEND=react but no OPENAI_API_KEY in the environment")
+        self.client = OpenAI()
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+    def think(self, messages, tools):
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": _react_prompt(messages, tools)}],
+            temperature=0)
+        return _parse_react_step(resp.choices[0].message.content or "", tools)
+
+
+class MockReActBackend(MockBackend):
+    """The mock's deterministic decisions, reformatted as ReAct text, then
+    run through the real Action-line parser — so the prompt-path plumbing
+    (and its tool choices) gets eval'd with no API key."""
+
+    def think(self, messages, tools):
+        d = super().think(messages, tools)
+        if d.get("answer"):
+            text = f"Thought: {d['thought']}\nAnswer: {d['answer']}"
+        else:
+            a = d["action"]
+            text = (f"Thought: {d['thought']}\n"
+                    f"Action: {a['name']}({json.dumps(a['args'])})")
+        return _parse_react_step(text, tools)
+
+
+# --- pick the brain: mock is the default, env flips to a real model ---
 def make_backend(name=None):
-    """'mock' (default) or 'openai'. AGENT_BACKEND env var picks for you."""
+    """'mock' (default), 'react' (ReAct text prompt), or 'openai' (native
+    function calling). AGENT_BACKEND env var picks for you."""
     name = name or os.environ.get("AGENT_BACKEND", "mock")
     if name == "mock":
         return MockBackend()
+    if name == "react":
+        return ReActPromptBackend()
     if name == "openai":
         return OpenAIBackend()
-    raise ValueError(f"unknown backend '{name}' — want 'mock' or 'openai'")
+    raise ValueError(f"unknown backend '{name}' — want 'mock', 'react', 'openai'")
 
 
 # --- the agent itself ---

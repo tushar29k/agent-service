@@ -1,14 +1,20 @@
 """Agent evals: did it succeed, use the right tools, respect the approval
 gates, and stay within its step budget?
 
+Each run covers BOTH tool-picking styles — ReAct text prompting vs native
+function calling — and reports tool-choice accuracy for each, so you can
+compare them head to head.
+
     python3 evals/run_eval.py
 """
+import os
 import sys
 
 import yaml
 
 sys.path.insert(0, ".")
-from agent import ReActAgent
+from agent import (MockBackend, MockReActBackend, OpenAIBackend,
+                   ReActAgent, ReActPromptBackend)
 
 
 def run_task(agent, task):
@@ -31,22 +37,40 @@ def run_task(agent, task):
     ok_answer = all(s.lower() in final["answer"].lower()
                     for s in task.get("expected_contains", []))
     ok_steps = final["steps"] <= task["max_steps"]
-    return ok_tools and ok_answer and ok_steps, used_tools, final
+    return ok_tools, ok_answer, ok_tools and ok_answer and ok_steps, used_tools, final
+
+
+def pick_backends():
+    """Real models when OPENAI_API_KEY is set, deterministic mocks otherwise
+    — the mocks keep the same tool-choice decisions, just via text."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return {"react": ReActPromptBackend(), "native": OpenAIBackend()}
+    return {"react": MockReActBackend(), "native": MockBackend()}
 
 
 def main():
     tasks = yaml.safe_load(open("evals/tasks.yaml"))["tasks"]
-    passed = 0
-    print(f"{'task':24s} {'pass':4s} tools_used")
-    for task in tasks:
-        agent = ReActAgent(checkpoint_dir="/tmp/agent_eval_ckpt")
-        ok, used, final = run_task(agent, task)
-        passed += ok
-        print(f"{task['id']:24s} {str(ok):4s} {used} "
-              f"(steps {final['steps']}, ~{final['est_tokens']} tok)")
-        if not ok:
-            print(f"   final answer: {final['answer'][:120]}")
-    print(f"\n{passed}/{len(tasks)} tasks passed")
+    tool_acc = {}
+    for name, backend in pick_backends().items():
+        passed, right_tools = 0, 0
+        print(f"--- backend: {name} ({type(backend).__name__}) ---")
+        print(f"{'task':24s} {'pass':4s} tools_used")
+        for task in tasks:
+            agent = ReActAgent(backend=backend,
+                               checkpoint_dir=f"/tmp/agent_eval_ckpt_{name}")
+            ok_tools, ok_answer, ok, used, final = run_task(agent, task)
+            passed += ok
+            right_tools += ok_tools
+            print(f"{task['id']:24s} {str(ok):4s} {used} "
+                  f"(steps {final['steps']}, ~{final['est_tokens']} tok)"
+                  f"{'' if ok_tools else '  <- WRONG TOOL CHOICE'}")
+            if not ok:
+                print(f"   final answer: {final['answer'][:120]}")
+        print(f"{name}: {passed}/{len(tasks)} tasks passed, "
+              f"tool-choice accuracy {right_tools}/{len(tasks)}\n")
+        tool_acc[name] = f"{right_tools}/{len(tasks)}"
+    react, native = tool_acc["react"], tool_acc["native"]
+    print(f"tool-choice accuracy — react: {react}, native: {native}")
 
 
 if __name__ == "__main__":
