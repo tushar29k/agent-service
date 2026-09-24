@@ -9,10 +9,13 @@ The "brain" is swappable:
   OpenAIBackend      — real LLM via native function calling (needs OPENAI_API_KEY)
   ReActPromptBackend — real LLM via a text Thought/Action/Observation loop,
                        parsed back into the same actions (needs OPENAI_API_KEY)
+  AnthropicBackend   — real LLM via Anthropic native tool use
+                       (needs ANTHROPIC_API_KEY)
 
 # Run the FAQ demo on the real model: AGENT_BACKEND=openai python3 agent.py
 # AGENT_BACKEND=react runs the same demo through the ReAct-prompt backend.
-# (needs: pip install openai, export OPENAI_API_KEY)
+# AGENT_BACKEND=anthropic runs it through Anthropic's tool use instead.
+# (needs: pip install openai|anthropic, export OPENAI_API_KEY|ANTHROPIC_API_KEY)
 """
 import inspect
 import json
@@ -154,29 +157,46 @@ class OpenAIBackend(ModelBackend):
                 "answer": msg.content or "No answer returned by the model."}
 
 
-def _tool_schemas(tools):
-    """Turn the Tool dataclasses into OpenAI function schemas.
-
-    Arg names/types come from each tool function's signature, so new
+def _arg_spec(tool):
+    """Arg names/types/required from a tool function's signature, so new
     tools get wired in with zero extra code."""
+    props, required = {}, []
+    for p in inspect.signature(tool.func).parameters.values():
+        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            continue
+        props[p.name] = {"type": {str: "string", int: "integer",
+                                  float: "number",
+                                  bool: "boolean"}.get(p.annotation,
+                                                        "string")}
+        if p.default is p.empty:
+            required.append(p.name)
+    return props, required
+
+
+def _tool_schemas(tools):
+    """Turn the Tool dataclasses into OpenAI function schemas."""
     schemas = []
     for t in tools:
-        props, required = {}, []
-        for p in inspect.signature(t.func).parameters.values():
-            if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
-                continue
-            props[p.name] = {"type": {str: "string", int: "integer",
-                                      float: "number",
-                                      bool: "boolean"}.get(p.annotation,
-                                                            "string")}
-            if p.default is p.empty:
-                required.append(p.name)
+        props, required = _arg_spec(t)
         schemas.append({"type": "function",
                         "function": {"name": t.name,
                                      "description": t.description,
                                      "parameters": {"type": "object",
                                                     "properties": props,
                                                     "required": required}}})
+    return schemas
+
+
+def _anthropic_tool_schemas(tools):
+    """Same tools, but in the shape Anthropic's native tool use wants."""
+    schemas = []
+    for t in tools:
+        props, required = _arg_spec(t)
+        schemas.append({"name": t.name,
+                        "description": t.description,
+                        "input_schema": {"type": "object",
+                                         "properties": props,
+                                         "required": required}})
     return schemas
 
 
@@ -277,6 +297,70 @@ class ReActPromptBackend(ModelBackend):
         return _parse_react_step(resp.choices[0].message.content or "", tools)
 
 
+class AnthropicBackend(ModelBackend):
+    """Native tool use via the Anthropic Messages API: same tools, same
+    action dicts — the loop can't tell it apart from the OpenAI backend.
+
+    Actions become tool_use blocks in an assistant turn, observations
+    become tool_result blocks in the following user turn (that's the
+    pairing Anthropic expects)."""
+
+    def __init__(self, model=None):
+        try:
+            from anthropic import Anthropic
+        except ImportError as e:
+            raise SystemExit(
+                "pip install anthropic  (AGENT_BACKEND=anthropic needs the package)"
+            ) from e
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise RuntimeError(
+                "AGENT_BACKEND=anthropic but no ANTHROPIC_API_KEY in the environment")
+        self.client = Anthropic()
+        self.model = model or os.environ.get("ANTHROPIC_MODEL",
+                                             "claude-haiku-4-5")
+
+    def think(self, messages, tools):
+        sys = ("You are a ReAct agent: answer the user, using the provided "
+               "tools whenever a step needs one. If a request is destructive "
+               "(like issuing a refund), still pick the tool — a human "
+               "approval gate runs afterwards, that's not your call.")
+        chat, n = [], 0
+        for m in messages:
+            r = m["role"]
+            if r == "action":
+                n += 1
+                a = m["action"]
+                chat.append({"role": "assistant",
+                             "content": [{"type": "tool_use", "id": f"toolu_{n}",
+                                          "name": a["name"],
+                                          "input": a["args"]}]})
+            elif r == "observation":
+                # each observation answers the tool_use right before it
+                chat.append({"role": "user",
+                             "content": [{"type": "tool_result",
+                                          "tool_use_id": f"toolu_{n}",
+                                          "content": m["content"]}]})
+            elif r == "user":
+                chat.append({"role": "user", "content": m["content"]})
+            else:  # assistant
+                chat.append({"role": "assistant", "content": m["content"]})
+        resp = self.client.messages.create(
+            model=self.model, max_tokens=1024, system=sys,
+            messages=chat, tools=_anthropic_tool_schemas(tools))
+        tool_use = next((b for b in resp.content
+                         if getattr(b, "type", None) == "tool_use"), None)
+        text = " ".join(b.text for b in resp.content
+                        if getattr(b, "type", None) == "text")
+        if tool_use:
+            return {"thought": text or f"Calling {tool_use.name}.",
+                    "action": {"name": tool_use.name,
+                               "args": tool_use.input or {}},
+                    "answer": None}
+        return {"thought": text or "Answering directly.",
+                "action": None,
+                "answer": text or "No answer returned by the model."}
+
+
 class MockReActBackend(MockBackend):
     """The mock's deterministic decisions, reformatted as ReAct text, then
     run through the real Action-line parser — so the prompt-path plumbing
@@ -295,8 +379,9 @@ class MockReActBackend(MockBackend):
 
 # --- pick the brain: mock is the default, env flips to a real model ---
 def make_backend(name=None):
-    """'mock' (default), 'react' (ReAct text prompt), or 'openai' (native
-    function calling). AGENT_BACKEND env var picks for you."""
+    """'mock' (default), 'react' (ReAct text prompt), 'openai' (native
+    function calling), or 'anthropic' (native tool use). AGENT_BACKEND env
+    var picks for you."""
     name = name or os.environ.get("AGENT_BACKEND", "mock")
     if name == "mock":
         return MockBackend()
@@ -304,7 +389,10 @@ def make_backend(name=None):
         return ReActPromptBackend()
     if name == "openai":
         return OpenAIBackend()
-    raise ValueError(f"unknown backend '{name}' — want 'mock', 'react', 'openai'")
+    if name == "anthropic":
+        return AnthropicBackend()
+    raise ValueError(f"unknown backend '{name}' — want 'mock', 'react', "
+                     f"'openai', 'anthropic'")
 
 
 # --- the agent itself ---
@@ -406,7 +494,7 @@ class ReActAgent:
 
 if __name__ == "__main__":
     # quick smoke test: an FAQ, then a refund that hits the approval gate
-    # (AGENT_BACKEND=openai runs this same demo on the real model)
+    # (AGENT_BACKEND=openai or =anthropic runs this same demo on a real model)
     agent = ReActAgent(backend=make_backend())
     print("--- task 1: faq ---")
     for ev in agent.run("demo-1", "What is the refund window?"):

@@ -5,3 +5,4 @@ pyyaml
 # langgraph
 # langchain-core
 # openai
+# anthropic

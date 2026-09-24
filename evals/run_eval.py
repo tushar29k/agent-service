@@ -3,7 +3,8 @@ gates, and stay within its step budget?
 
 Each run covers BOTH tool-picking styles — ReAct text prompting vs native
 function calling — and reports tool-choice accuracy for each, so you can
-compare them head to head.
+compare them head to head. ANTHROPIC_API_KEY joins Anthropic's native tool
+use into the comparison when it's set.
 
     python3 evals/run_eval.py
 """
@@ -13,8 +14,8 @@ import sys
 import yaml
 
 sys.path.insert(0, ".")
-from agent import (MockBackend, MockReActBackend, OpenAIBackend,
-                   ReActAgent, ReActPromptBackend)
+from agent import (AnthropicBackend, MockBackend, MockReActBackend,
+                   OpenAIBackend, ReActAgent, ReActPromptBackend)
 
 
 def run_task(agent, task):
@@ -41,11 +42,15 @@ def run_task(agent, task):
 
 
 def pick_backends():
-    """Real models when OPENAI_API_KEY is set, deterministic mocks otherwise
+    """Real models when their keys are set, deterministic mocks otherwise
     — the mocks keep the same tool-choice decisions, just via text."""
     if os.environ.get("OPENAI_API_KEY"):
-        return {"react": ReActPromptBackend(), "native": OpenAIBackend()}
-    return {"react": MockReActBackend(), "native": MockBackend()}
+        backends = {"react": ReActPromptBackend(), "native": OpenAIBackend()}
+    else:
+        backends = {"react": MockReActBackend(), "native": MockBackend()}
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        backends["anthropic"] = AnthropicBackend()
+    return backends
 
 
 def main():
@@ -69,8 +74,8 @@ def main():
         print(f"{name}: {passed}/{len(tasks)} tasks passed, "
               f"tool-choice accuracy {right_tools}/{len(tasks)}\n")
         tool_acc[name] = f"{right_tools}/{len(tasks)}"
-    react, native = tool_acc["react"], tool_acc["native"]
-    print(f"tool-choice accuracy — react: {react}, native: {native}")
+    print("tool-choice accuracy — " +
+          ", ".join(f"{k}: {tool_acc[k]}" for k in tool_acc))
 
 
 if __name__ == "__main__":
