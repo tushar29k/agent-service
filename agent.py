@@ -67,6 +67,12 @@ class MockBackend(ModelBackend):
                 return {"thought": "Arithmetic in the question — calculate.",
                         "action": {"name": "calculator",
                                    "args": {"expression": expr}}, "answer": None}
+            if any(w in q for w in ("latest", "news", "current events")):
+                return {"thought": "Wants current/external info — the web, "
+                                   "not the knowledge base.",
+                        "action": {"name": "web_search",
+                                   "args": {"query": question}},
+                        "answer": None}
             return {"thought": "Factual question — search the knowledge base.",
                     "action": {"name": "search_docs", "args": {"query": question}},
                     "answer": None}
@@ -87,6 +93,15 @@ class MockBackend(ModelBackend):
             return {"thought": "Have the fact — answer from the observation.",
                     "action": None,
                     "answer": f"Based on the knowledge base: {last_obs}"}
+
+        if acts and acts[-1] == "web_search":
+            if last_obs == "NO_RESULTS":
+                return {"thought": "Nothing on the web — say so honestly.",
+                        "action": None,
+                        "answer": "I couldn't find anything about that online."}
+            return {"thought": "Have the web result — answer from it.",
+                    "action": None,
+                    "answer": f"Based on web search: {last_obs}"}
 
         if acts and acts[-1] == "calculator":
             return {"thought": "Calculation done.",

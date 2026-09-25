@@ -30,3 +30,9 @@ tasks:
     must_use_tools: ["search_docs"]
     expected_contains: ["couldn't find"]
     max_steps: 6
+
+  - id: web_search_news
+    question: "What is the latest news on the T20 World Cup 2026 final?"
+    must_use_tools: ["web_search"]
+    expected_contains: ["7 runs"]
+    max_steps: 6

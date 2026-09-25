@@ -65,6 +65,37 @@ def search_docs(query: str) -> str:
     return best
 
 
+# canned web index for the demo — nothing here touches the network.
+# SWAP: when SEARCH_API_KEY is set, call a real search API here
+# (Tavily / Brave / Serper) and only fall back to this index in tests.
+WEB_INDEX = {
+    "t20": ("2026 T20 World Cup final",
+            "India beat South Africa by 7 runs in a last-over thriller "
+            "at the Wankhede."),
+    "weather": ("Bengaluru weather today",
+                "28°C, partly cloudy — evening showers likely after 6pm."),
+    "python": ("Python 3.14 released",
+               "Faster startup, deferred annotation evaluation, "
+               "and new template strings."),
+}
+
+
+def web_search(query: str) -> str:
+    """Search the live web for current or external info the knowledge base
+    can't cover. Args: query — keywords or a plain question.
+    Returns the top result as 'title — snippet', or NO_RESULTS.
+    Mock data for now — the real API hooks in where the SWAP comment says."""
+    toks = set(query.lower().split())
+    best, best_score = "NO_RESULTS", 0
+    for key, (title, snippet) in WEB_INDEX.items():
+        score = len(toks & set(snippet.lower().split()))
+        if key in query.lower():
+            score += 3                      # exact topic keyword counts triple
+        if score > best_score:
+            best, best_score = f"{title} — {snippet}", score
+    return best
+
+
 def issue_refund(order_id: str) -> str:
     """Issue a refund for an order. Args: order_id. DESTRUCTIVE — this one
     moves money, so the agent stops for human approval first."""
@@ -85,6 +116,7 @@ class Tool:
 TOOLS = [
     Tool("calculator", calculator.__doc__, calculator),
     Tool("search_docs", search_docs.__doc__, search_docs),
+    Tool("web_search", web_search.__doc__, web_search),
     Tool("issue_refund", issue_refund.__doc__, issue_refund,
          destructive=True),                 # the approval gate itself lives in agent.py
 ]
@@ -115,5 +147,9 @@ if __name__ == "__main__":
     assert "30 days" in node.run("search_docs", {"query": "refund window"})
     assert node.run("search_docs", {"query": "ceo favourite colour"}) == "NO_RESULTS"
     assert "12345" in node.run("issue_refund", {"order_id": "12345"})
+    assert "7 runs" in node.run("web_search",
+                               {"query": "latest news t20 world cup 2026 final"})
+    assert node.run("web_search",
+                    {"query": "quantum teleportation futures"}) == "NO_RESULTS"
     assert node.run("calculator", {"expression": "__import__('os')" }).startswith("ERROR")
     print("tools OK")
