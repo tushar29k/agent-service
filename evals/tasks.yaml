@@ -36,3 +36,9 @@ tasks:
     must_use_tools: ["web_search"]
     expected_contains: ["7 runs"]
     max_steps: 6
+
+  - id: fibonacci_python_exec
+    question: "What is the 20th Fibonacci number?"
+    must_use_tools: ["python_exec"]
+    expected_contains: ["6765"]
+    max_steps: 6

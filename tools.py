@@ -10,8 +10,12 @@ Rules of thumb (from guide 08, part 3):
   without a timeout
 """
 import ast
+import base64
+import marshal
 import operator
 import re
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 
@@ -96,6 +100,114 @@ def web_search(query: str) -> str:
     return best
 
 
+# math.* functions/constants the sandbox may touch — no files, no network,
+# no processes reachable through any of these
+_MATH_FUNCS = frozenset((
+    "sqrt", "cbrt", "sin", "cos", "tan", "asin", "acos", "atan",
+    "log", "log2", "log10", "exp", "pow", "floor", "ceil",
+    "factorial", "gcd", "comb", "perm", "isclose", "hypot",
+    "degrees", "radians", "trunc"))
+_MATH_CONSTS = frozenset(("pi", "e", "tau", "inf", "nan"))
+# plain helpers: arithmetic iteration and printing, nothing privileged
+_SAFE_HELPERS = frozenset((
+    "len", "sum", "min", "max", "abs", "round", "range",
+    "enumerate", "zip", "int", "float", "str", "bool",
+    "list", "dict", "tuple", "set", "print"))
+# every AST node type allowed through the validator below — anything else
+# (imports, defs, lambdas, comprehensions, try/with, ...) is rejected
+_SAFE_NODES = (
+    ast.Module, ast.Expr, ast.Assign, ast.AugAssign, ast.AnnAssign,
+    ast.For, ast.If, ast.While, ast.Break, ast.Continue, ast.Pass,
+    ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp,
+    ast.Call, ast.keyword, ast.Name, ast.Load, ast.Store,
+    ast.Constant, ast.Tuple, ast.List, ast.Subscript, ast.Slice,
+    ast.Attribute,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.UAdd, ast.USub, ast.Not, ast.Invert,
+    ast.And, ast.Or,
+    ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn,
+)
+
+
+def _check_sandbox(tree):
+    """Walk the parsed code, reject anything that could escape arithmetic."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id.startswith("__"):
+            raise ValueError("dunder/private names are not allowed")
+        if isinstance(node, ast.Attribute):
+            # math.sqrt is fine; anything else (x.y = z too) is not
+            if not (isinstance(node.value, ast.Name)
+                    and node.value.id == "math"
+                    and node.attr in _MATH_FUNCS | _MATH_CONSTS
+                    and isinstance(node.ctx, ast.Load)):
+                raise ValueError(f"attribute '{node.attr}' is not allowed")
+        if isinstance(node, ast.Call):
+            f = node.func
+            math_call = (isinstance(f, ast.Attribute)
+                         and isinstance(f.value, ast.Name)
+                         and f.value.id == "math" and f.attr in _MATH_FUNCS)
+            if not (math_call or (isinstance(f, ast.Name)
+                                  and f.id in _SAFE_HELPERS)):
+                raise ValueError("only math.* and safe helpers are callable")
+        if not isinstance(node, _SAFE_NODES):
+            raise ValueError(f"{type(node).__name__} is not allowed")
+
+
+# the child runs this: no site imports, a bare-bones __builtins__, and the
+# code itself arrives as marshalled bytecode so it can't smuggle new source
+_SANDBOX_CHILD = r"""
+import base64, marshal, math, sys
+code = marshal.loads(base64.b64decode(sys.argv[1]))
+safe_builtins = {"len": len, "sum": sum, "min": min, "max": max, "abs": abs,
+                 "round": round, "range": range, "enumerate": enumerate,
+                 "zip": zip, "int": int, "float": float, "str": str,
+                 "bool": bool, "list": list, "dict": dict, "tuple": tuple,
+                 "set": set, "print": print}
+ns = {"__builtins__": safe_builtins, "math": math}
+exec(code, ns)
+if "_result" in ns:                 # set when the code ends in an expression
+    print(repr(ns["_result"]))
+"""
+
+
+def python_exec(code: str) -> str:
+    """Run Python for calculations the calculator can't express: loops,
+    math functions (sqrt, sin, log, factorial, ...), multi-step numeric
+    work. Args: code — plain statements; the value of the LAST expression
+    statement is returned as text (loops and assignments above it are
+    fine). Blocked: imports, file/network access, defs, lambdas,
+    comprehensions, attribute access outside math.*. Runs with a 5s
+    timeout in a locked-down subprocess — returns ERROR: ... on bad code,
+    sandbox violations, or timeout, never raises."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return f"ERROR: syntax error ({e})"
+    try:
+        _check_sandbox(tree)
+    except ValueError as e:
+        return f"ERROR: sandbox violation ({e})"
+    # a trailing bare expression becomes the return value: `a` -> `_result = a`
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        tree.body[-1] = ast.Assign(
+            targets=[ast.Name(id="_result", ctx=ast.Store())],
+            value=tree.body[-1].value)
+        ast.fix_missing_locations(tree)
+    payload = base64.b64encode(
+        marshal.dumps(compile(tree, "<sandbox>", "exec"))).decode()
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-I", "-c", _SANDBOX_CHILD, payload],
+            capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return "ERROR: python_exec timed out after 5s"
+    if proc.returncode != 0:
+        err = proc.stderr.strip().splitlines()
+        return f"ERROR: {err[-1] if err else 'sandbox crashed'}"
+    out = proc.stdout.strip()
+    return out if out else "(no output)"
+
+
 def issue_refund(order_id: str) -> str:
     """Issue a refund for an order. Args: order_id. DESTRUCTIVE — this one
     moves money, so the agent stops for human approval first."""
@@ -115,6 +227,8 @@ class Tool:
 
 TOOLS = [
     Tool("calculator", calculator.__doc__, calculator),
+    Tool("python_exec", python_exec.__doc__, python_exec,
+         timeout=20.0),              # subprocess + 5s code timeout need headroom
     Tool("search_docs", search_docs.__doc__, search_docs),
     Tool("web_search", web_search.__doc__, web_search),
     Tool("issue_refund", issue_refund.__doc__, issue_refund,
@@ -152,4 +266,17 @@ if __name__ == "__main__":
     assert node.run("web_search",
                     {"query": "quantum teleportation futures"}) == "NO_RESULTS"
     assert node.run("calculator", {"expression": "__import__('os')" }).startswith("ERROR")
+    assert node.run("python_exec",
+                    {"code": "a, b = 0, 1\nfor _ in range(20):\n"
+                             "    a, b = b, a + b\na"}) == "6765"
+    assert node.run("python_exec",
+                    {"code": "math.sqrt(16) + sum(range(5))"}) == "14.0"
+    assert node.run("python_exec",
+                    {"code": "import os"}).startswith("ERROR")
+    assert node.run("python_exec",
+                    {"code": "(1).__class__"}).startswith("ERROR")
+    assert node.run("python_exec",
+                    {"code": "1/0"}).startswith("ERROR")
+    assert node.run("python_exec",
+                    {"code": "while True:\n    pass"}).startswith("ERROR")
     print("tools OK")

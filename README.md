@@ -23,7 +23,12 @@ This project is that loop, built the way you'd build it in production, with one 
 - **Checkpoints** — every step is saved as JSON under `checkpoints/<thread_id>.json`. Kill the process mid-run and the conversation picks up where it left off — state is explicit and serialisable, which is the whole point.
 - **Streaming** — `run()` and `approve()` are generators yielding events (`thought`, `tool_result`, `approval_required`, `final`), so a UI can stream progress live.
 
-The tools live in `tools.py`: a safe calculator (walks the AST, never `eval`s), a `search_docs` over a tiny fake knowledge base, and `issue_refund`. Each tool is a dataclass carrying a docstring — which doubles as what the model sees when choosing tools — plus a timeout and a destructive flag.
+The tools live in `tools.py`: a safe calculator (walks the AST, never `eval`s),
+a sandboxed `python_exec` for calculations that need loops or math functions,
+a `search_docs` over a tiny fake knowledge base, a mock `web_search`, and
+`issue_refund`. Each tool is a dataclass carrying a docstring — which doubles
+as what the model sees when choosing tools — plus a timeout and a destructive
+flag.
 
 `langgraph_agent.py` is the same idea rebuilt on LangGraph: the loop becomes an explicit graph with nodes and edges, and you get the framework's checkpointing, streaming, and visualisation instead of hand-rolling them. Reading it side-by-side with `agent.py`'s `_loop` is the fastest way to learn what a framework actually buys you.
 
@@ -46,7 +51,7 @@ What you'll see:
 
 - `tools.py` prints `tools OK` — calculator, search, and refund all behave.
 - `agent.py` runs two demos. Task 1 ("What is the refund window?") thinks, calls `search_docs`, and answers "Based on the knowledge base: Refund policy: full refunds are available within 30 days…". Task 2 ("Issue a refund for order 12345") thinks, then stops with `approval_required` for `issue_refund` — and the "approve it" step runs the refund and reports "Refund issued for order 12345."
-- `evals/run_eval.py` prints a table of the 5 tasks with the tools each used, ending in `5/5 tasks passed`.
+- `evals/run_eval.py` prints a table of the 7 tasks with the tools each used, ending in `7/7 tasks passed`.
 
 ### Using a real model
 
@@ -92,10 +97,10 @@ agent.py            ReActAgent: the think -> route -> act loop, loop detection,
                     approval gates, swappable MockBackend / OpenAIBackend
 tools.py            Tool dataclass (timeout + destructive flag), ToolNode with
                     timeouts and machine-readable errors, safe calculator,
-                    doc search, refund tool
+                    sandboxed python_exec, web search, doc search, refund tool
 langgraph_agent.py  the same loop as a LangGraph StateGraph — compare with agent.py
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
-evals/tasks.yaml    the 5 eval tasks: questions, required tools, expected answers
+evals/tasks.yaml    the 7 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
 checkpoints/        example saved conversation states
 ```
@@ -110,9 +115,9 @@ Five tasks, each checking something the loop has to get right:
 4. **refund_approval_denied** — same ask, but the human says no. Must cancel cleanly with "Cancelled by human".
 5. **unknown_topic** — "What is the CEO's favourite colour?" Must search, find nothing, and say so honestly instead of inventing an answer.
 
-Every task also carries a step budget (`max_steps`). Current score: **5/5 tasks passed**.
+Every task also carries a step budget (`max_steps`). Current score: **7/7 tasks passed**.
 
 ## Honest notes
 
 - The "brain" is a deterministic mock — rules and regexes tuned for these eval tasks. It is not intelligent and doesn't pretend to be. The point is that everything *around* the brain (the loop, tools, gates, checkpoints, evals) is real and testable without spending anything on API calls.
-- To plug in a real model: `pip install openai`, `export OPENAI_API_KEY`, and pass `OpenAIBackend()` to `ReActAgent` instead of the default `MockBackend()`. Same interface, no other changes. Fair warning, though: the mock was tuned for these exact tasks, so a real LLM has to *earn* its 5/5 — watch which tasks get better and which get worse. That's a genuinely interesting experiment.
+- To plug in a real model: `pip install openai`, `export OPENAI_API_KEY`, and pass `OpenAIBackend()` to `ReActAgent` instead of the default `MockBackend()`. Same interface, no other changes. Fair warning, though: the mock was tuned for these exact tasks, so a real LLM has to *earn* its 7/7 — watch which tasks get better and which get worse. That's a genuinely interesting experiment.

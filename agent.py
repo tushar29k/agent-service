@@ -62,6 +62,14 @@ class MockBackend(ModelBackend):
                 return {"thought": "Need the warranty period first, then convert.",
                         "action": {"name": "search_docs",
                                    "args": {"query": "warranty"}}, "answer": None}
+            if "fibonacci" in q:
+                return {"thought": "Needs a loop — the calculator can't "
+                                   "iterate, python_exec can.",
+                        "action": {"name": "python_exec",
+                                   "args": {"code": "a, b = 0, 1\n"
+                                                    "for _ in range(20):\n"
+                                                    "    a, b = b, a + b\na"}},
+                        "answer": None}
             if re.search(r"\d+\s*[+\-*/]\s*\d+", q):
                 expr = re.search(r"[\d\s+\-*/().]+", q).group(0).strip()
                 return {"thought": "Arithmetic in the question — calculate.",
@@ -103,7 +111,7 @@ class MockBackend(ModelBackend):
                     "action": None,
                     "answer": f"Based on web search: {last_obs}"}
 
-        if acts and acts[-1] == "calculator":
+        if acts and acts[-1] in ("calculator", "python_exec"):
             return {"thought": "Calculation done.",
                     "action": None, "answer": f"The result is {last_obs}."}
 
