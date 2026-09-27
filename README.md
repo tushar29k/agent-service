@@ -67,6 +67,21 @@ parse back into the same actions the loop already runs. `OPENAI_MODEL`
 overrides the default `gpt-4o-mini`. The mock stays the default — nothing
 changes unless you set `AGENT_BACKEND`.
 
+### Using a free model (no card, no bill)
+
+```bash
+export LLM_API_KEY=<your key>   # Google AI Studio (free tier) or OpenRouter
+AGENT_BACKEND=free python3 agent.py   # same demo, ReAct text loop
+```
+
+`LLM_PROVIDER` picks `gemini` (default, model `gemini-2.0-flash`) or
+`openrouter` (default model `openai/gpt-oss-20b:free`); `LLM_MODEL`
+overrides either. With a key set and no `AGENT_BACKEND`, the service
+auto-selects `free` — the live Render demo just needs the env var. If a
+model call fails (20s timeout, one retry on 429/5xx), the loop falls back
+to the mock's deterministic rules and keeps the approval gates intact,
+so the demo never breaks.
+
 The API needs `pip install fastapi uvicorn`:
 
 ```bash
@@ -92,9 +107,11 @@ python3 langgraph_agent.py   # builds the graph and runs the refund FAQ through 
 ## Project layout
 
 ```
+llm_client.py       free-tier LLM client (gemini | openrouter), stdlib only
 agent.py            ReActAgent: the think -> route -> act loop, loop detection,
                     JSON checkpoints per thread_id, streaming events,
-                    approval gates, swappable MockBackend / OpenAIBackend
+                    approval gates, swappable MockBackend / OpenAIBackend /
+                    AnthropicBackend / FreeBackend (free API)
 tools.py            Tool dataclass (timeout + destructive flag), ToolNode with
                     timeouts and machine-readable errors, safe calculator,
                     sandboxed python_exec, web search, doc search, refund tool

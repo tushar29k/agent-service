@@ -11,6 +11,9 @@ The "brain" is swappable:
                        parsed back into the same actions (needs OPENAI_API_KEY)
   AnthropicBackend   — real LLM via Anthropic native tool use
                        (needs ANTHROPIC_API_KEY)
+  FreeBackend        — real LLM over a free API (Gemini / OpenRouter),
+                       ReAct text loop (needs LLM_API_KEY); falls back to
+                       the mock's rules if the model call fails
 
 # Run the FAQ demo on the real model: AGENT_BACKEND=openai python3 agent.py
 # AGENT_BACKEND=react runs the same demo through the ReAct-prompt backend.
@@ -21,6 +24,7 @@ import inspect
 import json
 import os
 import re
+import sys
 
 from tools import TOOLS, ToolNode
 
@@ -384,6 +388,39 @@ class AnthropicBackend(ModelBackend):
                 "answer": text or "No answer returned by the model."}
 
 
+class FreeBackend(ModelBackend):
+    """Real model over a free API (Gemini / OpenRouter), ReAct as pure text:
+    the model writes Thought/Action lines via _react_prompt, _parse_react_step
+    turns them into the same action dicts native function calling produces.
+
+    Needs LLM_API_KEY in the environment. If the model call fails, falls
+    back to the mock's deterministic rules so the loop (and the approval
+    gates) never die mid-demo."""
+
+    def __init__(self):
+        from llm_client import FreeLLMClient, FreeLLMError
+        client = FreeLLMClient.from_env()
+        if client is None:
+            raise RuntimeError(
+                "AGENT_BACKEND=free but no LLM_API_KEY in the environment")
+        self.client = client
+        self._FreeLLMError = FreeLLMError
+        self._mock = MockBackend()
+
+    def think(self, messages, tools):
+        try:
+            text = self.client.generate(_react_prompt(messages, tools),
+                                        max_tokens=512, temperature=0)
+            return _parse_react_step(text or "", tools)
+        except self._FreeLLMError as e:
+            # model unreachable — the mock's rules keep the demo running;
+            # the failure lands in stderr (and Render logs) rather than
+            # the user-facing event stream
+            print(f"free backend: model call failed ({e}) — mock rules "
+                  f"instead", file=sys.stderr)
+            return self._mock.think(messages, tools)
+
+
 class MockReActBackend(MockBackend):
     """The mock's deterministic decisions, reformatted as ReAct text, then
     run through the real Action-line parser — so the prompt-path plumbing
@@ -403,9 +440,13 @@ class MockReActBackend(MockBackend):
 # --- pick the brain: mock is the default, env flips to a real model ---
 def make_backend(name=None):
     """'mock' (default), 'react' (ReAct text prompt), 'openai' (native
-    function calling), or 'anthropic' (native tool use). AGENT_BACKEND env
-    var picks for you."""
-    name = name or os.environ.get("AGENT_BACKEND", "mock")
+    function calling), 'anthropic' (native tool use), or 'free' (free-tier
+    API via llm_client, ReAct text prompt). AGENT_BACKEND env var picks
+    for you; a set LLM_API_KEY auto-selects 'free' when AGENT_BACKEND is
+    unset."""
+    name = name or os.environ.get("AGENT_BACKEND")
+    if name is None:
+        name = "free" if os.environ.get("LLM_API_KEY") else "mock"
     if name == "mock":
         return MockBackend()
     if name == "react":
@@ -414,8 +455,10 @@ def make_backend(name=None):
         return OpenAIBackend()
     if name == "anthropic":
         return AnthropicBackend()
+    if name == "free":
+        return FreeBackend()
     raise ValueError(f"unknown backend '{name}' — want 'mock', 'react', "
-                     f"'openai', 'anthropic'")
+                     f"'openai', 'anthropic', 'free'")
 
 
 # --- the agent itself ---
