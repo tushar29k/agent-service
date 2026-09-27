@@ -74,7 +74,7 @@ export LLM_API_KEY=<your key>   # Google AI Studio (free tier) or OpenRouter
 AGENT_BACKEND=free python3 agent.py   # same demo, ReAct text loop
 ```
 
-`LLM_PROVIDER` picks `gemini` (default, model `gemini-2.0-flash`) or
+`LLM_PROVIDER` picks `gemini` (default, model `gemini-3.8-flash`) or
 `openrouter` (default model `openai/gpt-oss-20b:free`); `LLM_MODEL`
 overrides either. With a key set and no `AGENT_BACKEND`, the service
 auto-selects `free` — the live Render demo just needs the env var. If a
