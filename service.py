@@ -41,6 +41,18 @@ def approve(body: dict):
 def health():
     return {"status": "ok"}
 
+
+@app.get("/info")
+def info():
+    # honest backend report for the demo badge: real model or offline mock
+    backend = agent.backend
+    client = getattr(backend, "client", None)
+    real = type(backend).__name__ == "FreeBackend" and client is not None
+    return {"real_llm": real,
+            "provider": client.provider if real else None,
+            "model": client.model if real else None,
+            "backend": type(backend).__name__}
+
 # -- demo ui -----------------------------------------------------------------
 # open / in a browser to click through the api instead of curling it.
 import os as _os

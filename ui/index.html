@@ -101,7 +101,7 @@ button.go:disabled{opacity:.45;cursor:wait;box-shadow:none}
 <header class="top">
   <span class="dot" id="health"></span>
   <h1>AGENT-SERVICE <span>// MISSION CONTROL</span></h1>
-  <span class="sys">SYS.STATUS: <span id="sysstat">BOOTING…</span> <span class="cursor"></span></span>
+  <span class="sys">SYS.STATUS: <span id="sysstat">BOOTING…</span> · <span id="llmbadge">LLM: PROBING…</span> <span class="cursor"></span></span>
 </header>
 <p class="sub">ReAct agent on the wire: it thinks, calls tools, and halts for human approval before anything destructive. Try <b>issue a refund for order 12345</b> to trip the approval gate.</p>
 
@@ -129,6 +129,12 @@ fetch('/health').then(function(){
 }).catch(function(){
   document.getElementById('sysstat').textContent = 'OFFLINE';
 });
+// llm badge: green when a real model is behind the agent, amber on the mock
+fetch('/info').then(function(r){return r.json()}).then(function(i){
+  var el=document.getElementById('llmbadge');
+  if(i.real_llm){el.textContent='LLM: LIVE · '+i.model;el.style.color='var(--green)'}
+  else{el.textContent='LLM: OFFLINE MOCK';el.style.color='var(--amber)'}
+}).catch(function(){document.getElementById('llmbadge').textContent='LLM: UNKNOWN'});
 
 function send(){
   var input=document.getElementById('msg');
