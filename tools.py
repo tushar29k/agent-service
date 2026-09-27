@@ -11,6 +11,7 @@ Rules of thumb (from guide 08, part 3):
 """
 import ast
 import base64
+import inspect
 import marshal
 import operator
 import re
@@ -209,8 +210,9 @@ def python_exec(code: str) -> str:
 
 
 def issue_refund(order_id: str) -> str:
-    """Issue a refund for an order. Args: order_id. DESTRUCTIVE — this one
-    moves money, so the agent stops for human approval first."""
+    """Issue a refund for an order. Args: order_id. Returns a confirmation
+    string, or ERROR: ... on a bad id. DESTRUCTIVE — this one moves money,
+    so the agent stops for human approval first."""
     if not re.fullmatch(r"\w+", order_id):
         return "ERROR: invalid order id"
     return f"Refund issued for order {order_id}."
@@ -255,7 +257,74 @@ class ToolNode:
                 return f"ERROR: {type(e).__name__}: {e}"
 
 
+# below this score the description is probably costing the model wrong calls
+LINT_THRESHOLD = 70
+# filler the model can't act on — tool selection gets fuzzier per word
+_VAGUE_WORDS = ("stuff", "thing", "things", "something", "somehow",
+                "etc.", "misc", "various", "whatever")
+
+
+def lint_tool_descriptions(tools=TOOLS):
+    """Score each tool's model-facing description for misuse risk.
+
+    A vague description is how the model calls the wrong tool: missing
+    purpose, undescribed args, no return/failure shape, and a destructive
+    tool without its warning label. Returns [(name, score, [warnings])]."""
+    results = []
+    for tool in tools:
+        score, warnings = 100, []
+        desc = (tool.description or "").strip()
+        if not desc:
+            # model sees nothing — guaranteed to pick it for the wrong reasons
+            results.append((tool.name, 0,
+                            ["no description at all — the model flies blind"]))
+            continue
+        if len(desc.split()) < 15:
+            warnings.append("very short — probably doesn't say when to use it")
+            score -= 20
+        # every arg must be mentioned by name, else the model guesses the call
+        args = [p for p in inspect.signature(tool.func).parameters
+                if p != "self"]
+        missing = [a for a in args if a not in desc]
+        if missing:
+            warnings.append("arg(s) " + ", ".join(missing) +
+                            " not described — the model guesses the call shape")
+            score -= 20
+        # model needs to know what comes back, including failure shapes
+        if not re.search(r"\b(return|error|no_results)\b", desc, re.I):
+            warnings.append("no mention of return shape / failure modes")
+            score -= 10
+        # destructive tools must carry their own warning in the description
+        if tool.destructive and not re.search(
+                r"\b(destructive|approval|human|money|move)\b", desc, re.I):
+            warnings.append("destructive tool with no warning in the "
+                            "description — the model won't pause for a human")
+            score -= 30
+        vague = [w for w in _VAGUE_WORDS if w.lower() in desc.lower()]
+        if vague:
+            warnings.append("vague filler words: " + ", ".join(vague))
+            score -= 10
+        results.append((tool.name, max(0, score), warnings))
+    return results
+
+
+def _print_lint_table(results):
+    """Print the scores so `python tools.py` doubles as the linter run."""
+    print("tool description lint (model-misuse risk)")
+    print(f"{'tool':<14} {'score':>5}  warnings")
+    print("-" * 60)
+    for name, score, warnings in results:
+        flag = "  <-- below threshold, fix me" if score < LINT_THRESHOLD else ""
+        print(f"{name:<14} {score:>5}{flag}")
+        for w in warnings:
+            print(f"{'':<14}   - {w}")
+    bad = sum(1 for _, s, _ in results if s < LINT_THRESHOLD)
+    print(f"{len(results)} tools linted, {bad} below {LINT_THRESHOLD}")
+    print()
+
+
 if __name__ == "__main__":
+    _print_lint_table(lint_tool_descriptions())
     node = ToolNode(TOOLS)
     assert node.run("calculator", {"expression": "12*13"}) == "156"
     assert "30 days" in node.run("search_docs", {"query": "refund window"})
