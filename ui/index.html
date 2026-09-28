@@ -132,7 +132,8 @@ fetch('/health').then(function(){
 // llm badge: green when a real model is behind the agent, amber on the mock
 fetch('/info').then(function(r){return r.json()}).then(function(i){
   var el=document.getElementById('llmbadge');
-  if(i.real_llm){el.textContent='LLM: LIVE · '+i.model;el.style.color='var(--green)'}
+  if(i.real_llm && !i.last_error){el.textContent='LLM: LIVE · '+i.model;el.style.color='var(--green)'}
+  else if(i.real_llm){el.textContent='LLM: LIVE · '+i.model+' · api hiccup';el.style.color='var(--amber)'}
   else{el.textContent='LLM: OFFLINE MOCK';el.style.color='var(--amber)'}
 }).catch(function(){document.getElementById('llmbadge').textContent='LLM: UNKNOWN'});
 

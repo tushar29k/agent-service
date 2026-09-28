@@ -434,16 +434,19 @@ class FreeBackend(ModelBackend):
         self.client = client
         self._FreeLLMError = FreeLLMError
         self._mock = MockBackend()
+        self.last_error = None  # last api failure, if any — on /info
 
     def think(self, messages, tools):
         try:
             text = self.client.generate(_react_prompt(messages, tools),
                                         max_tokens=512, temperature=0)
+            self.last_error = None  # recovered
             return _parse_react_step(text or "", tools)
         except self._FreeLLMError as e:
             # model unreachable — the mock's rules keep the demo running;
             # the failure lands in stderr (and Render logs) rather than
             # the user-facing event stream
+            self.last_error = str(e)  # key-free — safe for /info
             print(f"free backend: model call failed ({e}) — mock rules "
                   f"instead", file=sys.stderr)
             return self._mock.think(messages, tools)
