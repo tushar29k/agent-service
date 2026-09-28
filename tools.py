@@ -27,7 +27,7 @@ KNOWLEDGE = {
     "warranty": ("Warranty: all electronics carry a 2 year manufacturer "
                  "warranty covering manufacturing defects."),
     "support": ("Support: email support@example.com with your order ID. "
-                "Response within 1 business day."),
+                "Response within 1 business day (8 working hours)."),
 }
 
 

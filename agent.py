@@ -74,17 +74,27 @@ class MockBackend(ModelBackend):
                                                     "for _ in range(20):\n"
                                                     "    a, b = b, a + b\na"}},
                         "answer": None}
-            if re.search(r"\d+\s*[+\-*/]\s*\d+", q):
-                expr = re.search(r"[\d\s+\-*/().]+", q).group(0).strip()
-                return {"thought": "Arithmetic in the question — calculate.",
-                        "action": {"name": "calculator",
-                                   "args": {"expression": expr}}, "answer": None}
             if any(w in q for w in ("latest", "news", "current events")):
                 return {"thought": "Wants current/external info — the web, "
                                    "not the knowledge base.",
                         "action": {"name": "web_search",
                                    "args": {"query": question}},
                         "answer": None}
+            if "factorial" in q:
+                # calculator only handles arithmetic expressions — factorial
+                # needs math.factorial inside the sandbox
+                m = re.search(r"factorial of (\d+)", q)
+                n = m.group(1) if m else "5"
+                return {"thought": "Factorial — the calculator can't do "
+                                   "that, python_exec can.",
+                        "action": {"name": "python_exec",
+                                   "args": {"code": f"math.factorial({n})"}},
+                        "answer": None}
+            if re.search(r"\d+\s*[+\-*/]\s*\d+", q):
+                expr = re.search(r"[\d\s+\-*/().]+", q).group(0).strip()
+                return {"thought": "Arithmetic in the question — calculate.",
+                        "action": {"name": "calculator",
+                                   "args": {"expression": expr}}, "answer": None}
             return {"thought": "Factual question — search the knowledge base.",
                     "action": {"name": "search_docs", "args": {"query": question}},
                     "answer": None}
@@ -102,6 +112,14 @@ class MockBackend(ModelBackend):
                         "action": {"name": "calculator",
                                    "args": {"expression": f"{n}*12"}},
                         "answer": None}
+            if "minute" in q and "hour" in last_obs.lower():
+                # the hours figure came from the docs — convert with code
+                m = re.search(r"(\d+)\s*hour", last_obs.lower())
+                n = m.group(1) if m else "8"
+                return {"thought": f"Docs say {n} hours — convert to minutes.",
+                        "action": {"name": "python_exec",
+                                   "args": {"code": f"{n}*60"}},
+                        "answer": None}
             return {"thought": "Have the fact — answer from the observation.",
                     "action": None,
                     "answer": f"Based on the knowledge base: {last_obs}"}
@@ -111,6 +129,16 @@ class MockBackend(ModelBackend):
                 return {"thought": "Nothing on the web — say so honestly.",
                         "action": None,
                         "answer": "I couldn't find anything about that online."}
+            if "factorial" in q:
+                # chained computation on the web result: factorial of the
+                # major version number the snippet reported
+                m = re.search(r"python (\d+)\.", last_obs.lower())
+                n = m.group(1) if m else "3"
+                return {"thought": "Got the version — now compute its "
+                                   "factorial.",
+                        "action": {"name": "python_exec",
+                                   "args": {"code": f"math.factorial({n})"}},
+                        "answer": None}
             return {"thought": "Have the web result — answer from it.",
                     "action": None,
                     "answer": f"Based on web search: {last_obs}"}

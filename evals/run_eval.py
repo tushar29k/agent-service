@@ -35,10 +35,13 @@ def run_task(agent, task):
                 used_tools.append(ev["tool"])
     final = next(ev for ev in reversed(events) if ev["type"] == "final")
     ok_tools = all(t in used_tools for t in task.get("must_use_tools", []))
+    # misuse traps: the obvious-but-wrong tool must NOT appear
+    ok_not_misused = not any(t in used_tools
+                             for t in task.get("must_not_use_tools", []))
     ok_answer = all(s.lower() in final["answer"].lower()
                     for s in task.get("expected_contains", []))
     ok_steps = final["steps"] <= task["max_steps"]
-    return ok_tools, ok_answer, ok_tools and ok_answer and ok_steps, used_tools, final
+    return ok_tools, ok_not_misused, ok_answer, ok_tools and ok_not_misused and ok_answer and ok_steps, used_tools, final
 
 
 def pick_backends():
@@ -63,12 +66,13 @@ def main():
         for task in tasks:
             agent = ReActAgent(backend=backend,
                                checkpoint_dir=f"/tmp/agent_eval_ckpt_{name}")
-            ok_tools, ok_answer, ok, used, final = run_task(agent, task)
+            ok_tools, ok_not_misused, ok_answer, ok, used, final = run_task(agent, task)
             passed += ok
-            right_tools += ok_tools
+            right_tools += ok_tools and ok_not_misused
             print(f"{task['id']:24s} {str(ok):4s} {used} "
                   f"(steps {final['steps']}, ~{final['est_tokens']} tok)"
-                  f"{'' if ok_tools else '  <- WRONG TOOL CHOICE'}")
+                  f"{'' if ok_tools else '  <- WRONG TOOL CHOICE'}"
+                  f"{'' if ok_not_misused else '  <- USED A TRAP TOOL'}")
             if not ok:
                 print(f"   final answer: {final['answer'][:120]}")
         print(f"{name}: {passed}/{len(tasks)} tasks passed, "

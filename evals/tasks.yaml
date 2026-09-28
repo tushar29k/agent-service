@@ -42,3 +42,26 @@ tasks:
     must_use_tools: ["python_exec"]
     expected_contains: ["6765"]
     max_steps: 6
+
+  # tool-misuse trap: calculator is the obvious pick, but it can't express
+  # factorial — the right tool is python_exec
+  - id: factorial_python_exec
+    question: "What is the factorial of 6?"
+    must_use_tools: ["python_exec"]
+    must_not_use_tools: ["calculator"]
+    expected_contains: ["720"]
+    max_steps: 6
+
+  # multi-step: web result feeds a chained python_exec computation
+  - id: web_then_python_multistep
+    question: "What is the latest Python version released, and what is the factorial of its major version number?"
+    must_use_tools: ["web_search", "python_exec"]
+    expected_contains: ["6"]
+    max_steps: 8
+
+  # multi-step: docs lookup feeds a chained python_exec conversion
+  - id: support_minutes_multistep
+    question: "Support replies within 1 business day. How many minutes is a business day?"
+    must_use_tools: ["search_docs", "python_exec"]
+    expected_contains: ["480"]
+    max_steps: 8
