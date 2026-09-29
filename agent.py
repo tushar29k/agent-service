@@ -19,6 +19,10 @@ The "brain" is swappable:
 # AGENT_BACKEND=react runs the same demo through the ReAct-prompt backend.
 # AGENT_BACKEND=anthropic runs it through Anthropic's tool use instead.
 # (needs: pip install openai|anthropic, export OPENAI_API_KEY|ANTHROPIC_API_KEY)
+
+# Long threads: memory.py compacts them (summary + working-set) before
+# they reach the brain — pass memory=Memory() to ReActAgent to turn it on.
+# python3 memory.py runs the 30-step budget demo.
 """
 import inspect
 import json
@@ -26,7 +30,9 @@ import os
 import re
 import sys
 
+from memory import Memory
 from tools import TOOLS, ToolNode
+
 
 
 # --- the brain (swappable) ---
@@ -495,13 +501,17 @@ def make_backend(name=None):
 # --- the agent itself ---
 class ReActAgent:
     def __init__(self, backend=None, tools=TOOLS, max_steps=10,
-                 checkpoint_dir="checkpoints"):
+                 checkpoint_dir="checkpoints", memory=None):
         self.backend = backend or MockBackend()
         self.tools = tools
         self.tool_node = ToolNode(tools)
         self.destructive = {t.name for t in tools if t.destructive}
         self.max_steps = max_steps
         self.checkpoint_dir = checkpoint_dir
+        # opt-in: when set, the backend sees the compacted transcript
+        # (task + summary + working set) while checkpoints keep the full
+        # thread — memory only ever shrinks what the model reads
+        self.memory = memory
         os.makedirs(checkpoint_dir, exist_ok=True)
 
     # persistence is deliberately boring: one JSON file per thread_id,
@@ -524,7 +534,11 @@ class ReActAgent:
             if state["steps"] > self.max_steps:
                 yield self._final(state, "Stopped: max steps exceeded.")
                 return
-            d = self.backend.think(state["messages"], self.tools)
+            # backend reads the compacted transcript when memory is on;
+            # state itself always keeps the full thread
+            msgs = (self.memory.context(state["messages"]) if self.memory
+                    else state["messages"])
+            d = self.backend.think(msgs, self.tools)
             yield {"type": "thought", "thought": d["thought"]}
             if d.get("answer"):
                 state["messages"].append({"role": "assistant",
@@ -552,6 +566,8 @@ class ReActAgent:
             state["messages"].append({"role": "action", "action": action})
             state["messages"].append({"role": "observation", "content": result})
             self._save(thread_id, state)
+            if self.memory:
+                self.memory.update(state["messages"])
             yield {"type": "tool_result", "tool": action["name"],
                    "args": action["args"], "result": result}
 
@@ -584,6 +600,9 @@ class ReActAgent:
         result = self.tool_node.run(action["name"], action["args"])
         state["messages"].append({"role": "action", "action": action})
         state["messages"].append({"role": "observation", "content": result})
+        self._save(thread_id, state)
+        if self.memory:
+            self.memory.update(state["messages"])
         yield {"type": "tool_result", "tool": action["name"],
                "args": action["args"], "result": result}
         yield from self._loop(thread_id, state)
