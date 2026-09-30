@@ -23,6 +23,11 @@ The "brain" is swappable:
 # Long threads: memory.py compacts them (summary + working-set) before
 # they reach the brain — pass memory=Memory() to ReActAgent to turn it on.
 # python3 memory.py runs the 30-step budget demo.
+#
+# Sub-agent delegation: agent.delegate(thread_id, topic, subtasks) fans a
+# research task out to one researcher per subtask (read-only tools, no
+# approval gates by construction) and a writer merges the findings into
+# one coherent answer — task 3 of the `python3 agent.py` demo.
 """
 import inspect
 import json
@@ -59,6 +64,18 @@ class MockBackend(ModelBackend):
         obs = [m for m in messages if m["role"] == "observation"]
         acts = [m["action"]["name"] for m in messages if m["role"] == "action"]
         last_obs = obs[-1]["content"] if obs else None
+
+        if q.startswith("merge:"):
+            # the writer's merge step in delegate(): the researchers'
+            # findings are already in the prompt, so composing them into
+            # one answer is the merge — no tool needed
+            facts = [ln[2:] for ln in question.splitlines()
+                     if ln.startswith("- ")]
+            return {"thought": "Merging the researchers' findings into one "
+                               "answer.",
+                    "action": None,
+                    "answer": "Research summary:\n" +
+                              "\n".join(f"- {f}" for f in facts)}
 
         if not obs:
             if ("issue" in q or "process" in q) and "refund" in q:
@@ -263,7 +280,9 @@ def _anthropic_tool_schemas(tools):
 
 _RE_ACTION = re.compile(r"^Action:\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$",
                         re.M | re.S)
-_RE_ANSWER = re.compile(r"^Answer:\s*(.*?)\s*$", re.M | re.S)
+# \Z (not $ with re.M): the model may write a multi-line answer and $ would
+# stop at the first line end — the whole answer has to survive
+_RE_ANSWER = re.compile(r"^Answer:\s*(.*?)\s*\Z", re.M | re.S)
 _RE_THOUGHT = re.compile(r"^Thought:\s*(.*?)\s*$", re.M | re.S)
 
 
@@ -607,6 +626,61 @@ class ReActAgent:
                "args": action["args"], "result": result}
         yield from self._loop(thread_id, state)
 
+    def delegate(self, thread_id, topic, subtasks, max_steps=6):
+        """Fan out + merge. One researcher per subtask (own thread, own
+        loop, read-only tools), then a writer merges their findings into
+        one coherent answer. Yields events — stream these to the UI the
+        same way you stream run()."""
+        findings = []
+        for i, sub in enumerate(subtasks):
+            f = Researcher(backend=self.backend, max_steps=max_steps,
+                           memory=self.memory).research(
+                               f"{thread_id}-research-{i}", sub)
+            findings.append(f)
+            yield {"type": "researcher_result", "subtopic": sub,
+                   "answer": f["answer"], "tools": f["tools"],
+                   "steps": f["steps"]}
+        # the writer: one more ReAct pass over the collected findings, so
+        # the merge itself goes through a backend instead of string concat
+        prompt = ("merge: combine these research findings on '" + topic +
+                  "' into one coherent answer, keeping each fact:\n" +
+                  "\n".join(f"- {f['answer']}" for f in findings))
+        writer = ReActAgent(backend=self.backend, tools=READ_ONLY_TOOLS,
+                            max_steps=4, memory=self.memory)
+        yield from writer.run(f"{thread_id}-writer", prompt)
+
+
+# --- sub-agent delegation: researcher -> writer ---
+# a research task fans out: one researcher per subtask, each with its own
+# ReAct loop, its own thread, and a read-only tool subset — destructive
+# tools can't even reach a researcher, so there are no approval gates
+# mid-fan-out. the writer then merges the findings into one answer.
+READ_ONLY_TOOLS = [t for t in TOOLS
+                   if not t.destructive and t.name != "python_exec"]
+# python_exec stays out on purpose: researchers read facts, they don't run
+# code — keeps their blast radius obvious
+
+
+class Researcher:
+    """One sub-agent: its own ReActAgent, read-only tools, fresh thread."""
+
+    def __init__(self, backend=None, max_steps=6, memory=None):
+        self.agent = ReActAgent(backend=backend or MockBackend(),
+                                tools=READ_ONLY_TOOLS, max_steps=max_steps,
+                                memory=memory)
+
+    def research(self, thread_id, subtopic):
+        """Run the subtopic through a fresh ReAct loop; return the findings
+        dict the writer merges (subtopic, answer, tools used, steps)."""
+        used, final = [], None
+        for ev in self.agent.run(thread_id, subtopic):
+            if ev["type"] == "tool_result":
+                used.append(ev["tool"])
+            if ev["type"] == "final":
+                final = ev
+        return {"subtopic": subtopic, "answer": final["answer"],
+                "tools": used, "steps": final["steps"]}
+
 
 if __name__ == "__main__":
     # quick smoke test: an FAQ, then a refund that hits the approval gate
@@ -621,3 +695,12 @@ if __name__ == "__main__":
     print("--- approve it ---")
     for ev in agent.approve("demo-2", True):
         print(ev["type"], "->", str(ev.get("answer") or ev.get("result"))[:80])
+    print("--- task 3: delegation fan-out + merge ---")
+    for ev in agent.delegate(
+            "demo-3", "refund window, warranty period, and t20 news",
+            ["What is the refund window?",
+             "How many months is the warranty?",
+             "What is the latest news on the 2026 T20 World Cup final?"]):
+        print(ev["type"], "->",
+              str(ev.get("answer") or ev.get("thought")
+                  or ev.get("subtopic"))[:110])
