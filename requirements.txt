@@ -1,4 +1,5 @@
 pyyaml
+mcp  # MCP SDK: stdio client in mcp_client.py + sample server (verified installs)
 # --- production swaps ---
 # fastapi
 # uvicorn
