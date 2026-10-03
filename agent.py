@@ -28,6 +28,11 @@ The "brain" is swappable:
 # research task out to one researcher per subtask (read-only tools, no
 # approval gates by construction) and a writer merges the findings into
 # one coherent answer — task 3 of the `python3 agent.py` demo.
+#
+# Guardrails: guardrails.py redacts PII from tool args and refuses
+# prompt-injection attempts (user task or tool observation), logging both
+# to guardrails.jsonl. On by default; AGENT_GUARDRAILS=off disables.
+# python3 test_guardrails.py proves the refusal + redaction paths.
 """
 import inspect
 import json
@@ -36,6 +41,7 @@ import re
 import sys
 
 from memory import Memory
+from guardrails import Guardrails
 from tools import TOOLS, ToolNode
 
 
@@ -520,7 +526,7 @@ def make_backend(name=None):
 # --- the agent itself ---
 class ReActAgent:
     def __init__(self, backend=None, tools=TOOLS, max_steps=10,
-                 checkpoint_dir="checkpoints", memory=None):
+                 checkpoint_dir="checkpoints", memory=None, guardrails=None):
         self.backend = backend or MockBackend()
         self.tools = tools
         self.tool_node = ToolNode(tools)
@@ -531,6 +537,21 @@ class ReActAgent:
         # (task + summary + working set) while checkpoints keep the full
         # thread — memory only ever shrinks what the model reads
         self.memory = memory
+        # guardrails on by default: PII redaction on tool args + injection
+        # refusal. pass Guardrails(enabled=False) — or set
+        # AGENT_GUARDRAILS=off — to run raw
+        if guardrails is None:
+            guardrails = Guardrails()
+        elif guardrails is False:
+            guardrails = Guardrails(enabled=False)
+        if os.environ.get("AGENT_GUARDRAILS", "").lower() in (
+                "off", "0", "false", "no"):
+            guardrails.enabled = False
+        self.guardrails = guardrails
+        if not self.guardrails.log_path:
+            # the audit log lives next to the thread checkpoints
+            self.guardrails.log_path = os.path.join(checkpoint_dir,
+                                                    "guardrails.jsonl")
         os.makedirs(checkpoint_dir, exist_ok=True)
 
     # persistence is deliberately boring: one JSON file per thread_id,
@@ -566,6 +587,15 @@ class ReActAgent:
                 yield self._final(state, d["answer"])
                 return
             action = d["action"]
+            # PII redaction before anything sees the args — the approval
+            # gate and the tool only ever get the scrubbed version
+            red = self.guardrails.redact_tool_args(action["name"],
+                                                    action["args"],
+                                                    thread_id=thread_id)
+            action["args"] = red["args"]
+            if red["redacted"]:
+                yield {"type": "guardrail", "tool": action["name"],
+                       "redacted": red["redacted"]}
             # cheap stuck-detector: same action 3 times in a row means
             # we're going in circles
             recent = [m["action"] for m in state["messages"]
@@ -582,6 +612,16 @@ class ReActAgent:
                        "reason": f"'{action['name']}' is destructive"}
                 return
             result = self.tool_node.run(action["name"], action["args"])
+            # observations can carry injections too (poisoned tool output) —
+            # a hit stops the run instead of steering the next thought
+            oref = self.guardrails.check_observation(
+                result, thread_id=thread_id, tool=action["name"])
+            if oref:
+                self._save(thread_id, state)
+                yield {"type": "refusal", "source": oref["source"],
+                       "patterns": oref["patterns"], "tool": action["name"]}
+                yield self._final(state, oref["answer"], refused=True)
+                return
             state["messages"].append({"role": "action", "action": action})
             state["messages"].append({"role": "observation", "content": result})
             self._save(thread_id, state)
@@ -590,16 +630,25 @@ class ReActAgent:
             yield {"type": "tool_result", "tool": action["name"],
                    "args": action["args"], "result": result}
 
-    def _final(self, state, answer):
+    def _final(self, state, answer, refused=False):
         est_tokens = sum(len(str(m.get("content", ""))) for m in
                          state["messages"]) // 4
         return {"type": "final", "answer": answer, "steps": state["steps"],
-                "est_tokens": est_tokens}
+                "est_tokens": est_tokens, "refused": refused}
 
     def run(self, thread_id, message):
         """Start a task. Yields events (stream these to the UI)."""
         state = {"messages": [{"role": "user", "content": message}],
                  "steps": 0}
+        # injection check first: a hostile task never reaches the brain
+        refusal = self.guardrails.check_user_task(message,
+                                                  thread_id=thread_id)
+        if refusal:
+            self._save(thread_id, state)
+            yield {"type": "refusal", "source": refusal["source"],
+                   "patterns": refusal["patterns"]}
+            yield self._final(state, refusal["answer"], refused=True)
+            return
         yield from self._loop(thread_id, state)
 
     def approve(self, thread_id, approved):

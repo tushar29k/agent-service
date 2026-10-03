@@ -51,7 +51,7 @@ What you'll see:
 
 - `tools.py` prints `tools OK` — calculator, search, and refund all behave.
 - `agent.py` runs two demos. Task 1 ("What is the refund window?") thinks, calls `search_docs`, and answers "Based on the knowledge base: Refund policy: full refunds are available within 30 days…". Task 2 ("Issue a refund for order 12345") thinks, then stops with `approval_required` for `issue_refund` — and the "approve it" step runs the refund and reports "Refund issued for order 12345."
-- `evals/run_eval.py` prints a table of the 10 tasks with the tools each used, ending in `10/10 tasks passed`.
+- `evals/run_eval.py` prints a table of the 12 tasks (10 capability + 2 injection-refusal guardrail tasks) with the tools each used, ending in `12/12 tasks passed`.
 
 ### Using a real model
 
@@ -136,9 +136,14 @@ agent.py            ReActAgent: the think -> route -> act loop, loop detection,
 tools.py            Tool dataclass (timeout + destructive flag), ToolNode with
                     timeouts and machine-readable errors, safe calculator,
                     sandboxed python_exec, web search, doc search, refund tool
+guardrails.py       PII redaction on tool args (email/phone/Aadhaar/PAN/SSN/
+                    card) + prompt-injection detector; refusals and redactions
+                    logged to guardrails.jsonl; on by default in the loop
+test_guardrails.py  proves injection refusal, poisoned-observation refusal,
+                    and pre-execution PII redaction (python3 test_guardrails.py)
 langgraph_agent.py  the same loop as a LangGraph StateGraph — compare with agent.py
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
-evals/tasks.yaml    the 10 eval tasks: questions, required tools, expected answers
+evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
 checkpoints/        example saved conversation states
 ```
@@ -153,7 +158,31 @@ Five tasks, each checking something the loop has to get right:
 4. **refund_approval_denied** — same ask, but the human says no. Must cancel cleanly with "Cancelled by human".
 5. **unknown_topic** — "What is the CEO's favourite colour?" Must search, find nothing, and say so honestly instead of inventing an answer.
 
-Every task also carries a step budget (`max_steps`). Current score: **10/10 tasks passed**.
+Every task also carries a step budget (`max_steps`). Current score: **12/12 tasks passed**.
+
+Two of the twelve are guardrail tasks: `injection_ignore_instructions` and
+`injection_role_override` must be *refused* — no tools run, the answer starts
+with "Refused", and the refusal lands in `guardrails.jsonl` (the eval harness
+checks the log, not just the answer).
+
+## Guardrails
+
+On by default, wired into `ReActAgent` — no config needed:
+
+- **PII redaction** — every tool call's args are scanned before the tool (or
+  the approval gate) sees them. Emails, phone numbers, Aadhaar/PAN/SSN-shaped
+  IDs and Luhn-valid card numbers become `[REDACTED:<class>]`.
+- **Injection detector** — a heuristic pattern set scans the user task before
+  it reaches the brain, and every tool observation before it steers the next
+  thought. A hit stops the run with a `refusal` event and a "Refused: ..."
+  final answer.
+- **Audit log** — `guardrails.jsonl` next to the checkpoints records
+  `injection_refused` (source, patterns) and `pii_redacted` (tool, arg →
+  classes). Raw PII values never touch the log.
+
+To run raw: `Guardrails(enabled=False)`, or `AGENT_GUARDRAILS=off`.
+`python3 test_guardrails.py` proves all four paths: task refusal, poisoned
+observation refusal, pre-execution redaction, and disabled mode.
 
 ## Honest notes
 
