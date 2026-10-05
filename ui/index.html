@@ -166,12 +166,12 @@ function runStream(url, body){
 function handle(ev){
   if(ev.type==='thought'){ add('<span class="tag">[thought]</span> '+esc(ev.thought),'thought'); }
   else if(ev.type==='tool_result'){ add('<span class="p">[tool :: '+esc(ev.tool)+']</span><pre>'+esc(typeof ev.result==='string'?ev.result:JSON.stringify(ev.result,null,2))+'</pre>','result'); }
-  else if(ev.type==='approval_required'){
-    var d=add('<span class="warn">[!] APPROVAL REQUIRED</span> — <b>'+esc(ev.action.name)+'</b> '+esc(JSON.stringify(ev.action.args))+'<br><span class="warn">'+esc(ev.reason)+'</span><div class="appr"><button class="yes">[Y] AUTHORIZE</button><button class="no">[N] DENY</button></div>','gate');
+  else if(ev.type==='cost_exceeded'){ add('<span class="warn">[!] COST CAP EXCEEDED</span> — spent $'+ev.spent_usd.toFixed(4)+' of $'+ev.cap_usd.toFixed(4)+' budget after '+ev.calls+' model calls','gate'); }
+  else if(ev.type==='approval_required'){    var d=add('<span class="warn">[!] APPROVAL REQUIRED</span> — <b>'+esc(ev.action.name)+'</b> '+esc(JSON.stringify(ev.action.args))+'<br><span class="warn">'+esc(ev.reason)+'</span><div class="appr"><button class="yes">[Y] AUTHORIZE</button><button class="no">[N] DENY</button></div>','gate');
     d.querySelector('.yes').onclick=function(){d.querySelector('.appr').remove();add('<span class="p">[auth]</span> approved by operator','thought');runStream('/approve',{thread_id:threadId,approved:true})};
     d.querySelector('.no').onclick=function(){d.querySelector('.appr').remove();add('<span class="warn">[auth]</span> denied by operator','thought');runStream('/approve',{thread_id:threadId,approved:false})};
   }
-  else if(ev.type==='final'){ add('<span class="p">» RESULT</span><div class="ans">'+esc(ev.answer)+'</div><div class="steps">— '+ev.steps+' steps · thread '+esc(threadId)+'</div>','final'); }
+  else if(ev.type==='final'){ add('<span class="p">» RESULT</span><div class="ans">'+esc(ev.answer)+'</div><div class="steps">— '+ev.steps+' steps · $'+(ev.est_cost_usd||0).toFixed(4)+' cost · thread '+esc(threadId)+'</div>','final'); }
 }
 </script>
 </body>

@@ -33,6 +33,11 @@ The "brain" is swappable:
 # prompt-injection attempts (user task or tool observation), logging both
 # to guardrails.jsonl. On by default; AGENT_GUARDRAILS=off disables.
 # python3 test_guardrails.py proves the refusal + redaction paths.
+#
+# Cost cap: cost.py tracks estimated USD per run and the loop aborts with
+# a `cost_exceeded` event once the budget is gone — the kill-switch for
+# runaway tasks. AGENT_MAX_COST sets the budget (default $0.10/run),
+# or pass max_cost=... to ReActAgent. python3 cost.py proves the kill.
 """
 import inspect
 import json
@@ -40,6 +45,7 @@ import os
 import re
 import sys
 
+from cost import CostTracker
 from memory import Memory
 from guardrails import Guardrails
 from tools import TOOLS, ToolNode
@@ -201,6 +207,7 @@ class OpenAIBackend(ModelBackend):
                 "AGENT_BACKEND=openai but no OPENAI_API_KEY in the environment")
         self.client = OpenAI()
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        self.last_usage = None  # (prompt_tok, completion_tok) — the cost meter reads this
 
     def think(self, messages, tools):
         sys = ("You are a ReAct agent: answer the user, using the provided "
@@ -230,6 +237,10 @@ class OpenAIBackend(ModelBackend):
             tool_choice="auto",
             temperature=0)
         msg = resp.choices[0].message
+        if getattr(resp, "usage", None):
+            # real token counts for the cost meter (chars/4 otherwise)
+            self.last_usage = (resp.usage.prompt_tokens,
+                               resp.usage.completion_tokens)
         if msg.tool_calls:
             tc = msg.tool_calls[0]  # one action per think — the loop asks again
             return {"thought": msg.content or f"Calling {tc.function.name}.",
@@ -404,6 +415,7 @@ class AnthropicBackend(ModelBackend):
         self.client = Anthropic()
         self.model = model or os.environ.get("ANTHROPIC_MODEL",
                                              "claude-haiku-4-5")
+        self.last_usage = None  # (prompt_tok, completion_tok) — the cost meter reads this
 
     def think(self, messages, tools):
         sys = ("You are a ReAct agent: answer the user, using the provided "
@@ -433,6 +445,10 @@ class AnthropicBackend(ModelBackend):
         resp = self.client.messages.create(
             model=self.model, max_tokens=1024, system=sys,
             messages=chat, tools=_anthropic_tool_schemas(tools))
+        if getattr(resp, "usage", None):
+            # real token counts for the cost meter (chars/4 otherwise)
+            self.last_usage = (resp.usage.input_tokens,
+                               resp.usage.output_tokens)
         tool_use = next((b for b in resp.content
                          if getattr(b, "type", None) == "tool_use"), None)
         text = " ".join(b.text for b in resp.content
@@ -526,13 +542,17 @@ def make_backend(name=None):
 # --- the agent itself ---
 class ReActAgent:
     def __init__(self, backend=None, tools=TOOLS, max_steps=10,
-                 checkpoint_dir="checkpoints", memory=None, guardrails=None):
+                 checkpoint_dir="checkpoints", memory=None, guardrails=None,
+                 max_cost=None):
         self.backend = backend or MockBackend()
         self.tools = tools
         self.tool_node = ToolNode(tools)
         self.destructive = {t.name for t in tools if t.destructive}
         self.max_steps = max_steps
         self.checkpoint_dir = checkpoint_dir
+        # cost cap: per-run USD budget, the kill-switch for runaway tasks.
+        # max_cost=... overrides AGENT_MAX_COST (default $0.10/run)
+        self.cost = CostTracker(max_cost)
         # opt-in: when set, the backend sees the compacted transcript
         # (task + summary + working set) while checkpoints keep the full
         # thread — memory only ever shrinks what the model reads
@@ -574,11 +594,25 @@ class ReActAgent:
             if state["steps"] > self.max_steps:
                 yield self._final(state, "Stopped: max steps exceeded.")
                 return
+            # the kill-switch: a runaway run dies on budget before it
+            # dies on steps — distinct event, distinct final line
+            if self.cost.exceeded():
+                yield {"type": "cost_exceeded",
+                       "spent_usd": self.cost.spent_usd,
+                       "cap_usd": self.cost.cap_usd,
+                       "calls": self.cost.calls}
+                yield self._final(
+                    state,
+                    f"Stopped: cost cap exceeded "
+                    f"(${self.cost.spent_usd:.4f} of "
+                    f"${self.cost.cap_usd:.4f} budget).")
+                return
             # backend reads the compacted transcript when memory is on;
             # state itself always keeps the full thread
             msgs = (self.memory.context(state["messages"]) if self.memory
                     else state["messages"])
             d = self.backend.think(msgs, self.tools)
+            self.cost.record_think(self.backend, msgs, d)
             yield {"type": "thought", "thought": d["thought"]}
             if d.get("answer"):
                 state["messages"].append({"role": "assistant",
@@ -634,10 +668,12 @@ class ReActAgent:
         est_tokens = sum(len(str(m.get("content", ""))) for m in
                          state["messages"]) // 4
         return {"type": "final", "answer": answer, "steps": state["steps"],
-                "est_tokens": est_tokens, "refused": refused}
+                "est_tokens": est_tokens, "refused": refused,
+                "est_cost_usd": round(self.cost.spent_usd, 6)}
 
     def run(self, thread_id, message):
         """Start a task. Yields events (stream these to the UI)."""
+        self.cost.reset()  # the budget is per run, not per agent
         state = {"messages": [{"role": "user", "content": message}],
                  "steps": 0}
         # injection check first: a hostile task never reaches the brain
@@ -753,3 +789,27 @@ if __name__ == "__main__":
         print(ev["type"], "->",
               str(ev.get("answer") or ev.get("thought")
                   or ev.get("subtopic"))[:110])
+    print("--- task 4: kill-switch (runaway brain, tiny budget) ---")
+    class RunawayBrain(MockBackend):
+        """Never answers, always acts with fresh args — the loop detector
+        can't catch it, max_steps is generous, so only the cost cap can
+        stop it."""
+
+        def __init__(self):
+            self.n = 0
+
+        def think(self, messages, tools):
+            self.n += 1
+            return {"thought": f"still working, step {self.n}",
+                    "action": {"name": "calculator",
+                               "args": {"expression": f"{self.n}+{self.n}"}},
+                    "answer": None}
+
+    poor = ReActAgent(backend=RunawayBrain(), max_steps=50, max_cost=1e-9)
+    for ev in poor.run("demo-4", "keep calculating forever"):
+        if ev["type"] == "cost_exceeded":
+            print(f"cost_exceeded -> ${ev['spent_usd']:.6f} of "
+                  f"${ev['cap_usd']:.9f} after {ev['calls']} calls")
+        if ev["type"] == "final":
+            print(ev["type"], "->", ev["answer"],
+                  f"(steps {ev['steps']} of max 50)")

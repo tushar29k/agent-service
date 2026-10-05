@@ -184,6 +184,26 @@ To run raw: `Guardrails(enabled=False)`, or `AGENT_GUARDRAILS=off`.
 `python3 test_guardrails.py` proves all four paths: task refusal, poisoned
 observation refusal, pre-execution redaction, and disabled mode.
 
+## Cost cap (kill-switch)
+
+`max_steps` stops long runs, but a run can still burn real money in a few
+steps (long contexts, big completions). So every run also gets a USD
+budget: `CostTracker` prices each model call — real `resp.usage` token
+counts from the OpenAI/Anthropic backends, character-based estimate
+otherwise — and the loop aborts with a `cost_exceeded` event (and a
+"Stopped: cost cap exceeded" final line) once the budget is gone. Stopped
+by cost, not by steps.
+
+- Default cap: **$0.10/run**, via `AGENT_MAX_COST`. `ReActAgent(max_cost=...)`
+  overrides per instance.
+- Price table is per-model; `AGENT_COST_IN_PER_1K` / `AGENT_COST_OUT_PER_1K`
+  override the per-1k-token input/output prices for unlisted models.
+- Every `final` event carries `est_cost_usd`; the demo UI shows the running
+  cost and a red banner when the fuse trips.
+
+`python3 cost.py` proves the kill: a runaway brain that never answers is
+stopped after 2 steps with max_steps still at 50.
+
 ## Honest notes
 
 - The "brain" is a deterministic mock — rules and regexes tuned for these eval tasks. It is not intelligent and doesn't pretend to be. The point is that everything *around* the brain (the loop, tools, gates, checkpoints, evals) is real and testable without spending anything on API calls.

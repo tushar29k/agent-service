@@ -1,0 +1,1 @@
+{"messages": [{"role": "user", "content": "keep calculating forever"}, {"role": "action", "action": {"name": "calculator", "args": {"expression": "1+1"}}}, {"role": "observation", "content": "2"}], "steps": 1}
