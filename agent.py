@@ -6,6 +6,8 @@ The "brain" is swappable:
   MockBackend        — deterministic rules for demos/tests (NOT intelligent)
   MockReActBackend   — same rules, but answers in ReAct text so the
                        Action-line parser gets exercised with no API key
+  MockFreeBackend    — FreeBackend's ReAct-text loop with the mock's rules
+                       standing in for the model (no LLM_API_KEY needed)
   OpenAIBackend      — real LLM via native function calling (needs OPENAI_API_KEY)
   ReActPromptBackend — real LLM via a text Thought/Action/Observation loop,
                        parsed back into the same actions (needs OPENAI_API_KEY)
@@ -38,6 +40,9 @@ The "brain" is swappable:
 # a `cost_exceeded` event once the budget is gone — the kill-switch for
 # runaway tasks. AGENT_MAX_COST sets the budget (default $0.10/run),
 # or pass max_cost=... to ReActAgent. python3 cost.py proves the kill.
+# Every finished run also appends one JSONL record (tokens, cost, steps,
+# outcome) to logs/agent_cost.jsonl (AGENT_COST_LOG overrides) — the raw
+# data behind the evals/cost-vs-quality.md table.
 """
 import inspect
 import json
@@ -45,7 +50,7 @@ import os
 import re
 import sys
 
-from cost import CostTracker
+from cost import CostTracker, log_run_record
 from memory import Memory
 from guardrails import Guardrails
 from tools import TOOLS, ToolNode
@@ -68,6 +73,11 @@ class MockBackend(ModelBackend):
     not intelligent. The real backend (below) lets the LLM do the thinking
     instead.
     """
+
+    # the model this mock stands in for — the cost meter prices it like
+    # the real OpenAIBackend default, so mock cost-vs-quality numbers are
+    # on the same scale as live ones
+    model = "gpt-4o-mini"
 
     def think(self, messages, tools):
         question = next(m["content"] for m in messages
@@ -499,6 +509,48 @@ class FreeBackend(ModelBackend):
             return self._mock.think(messages, tools)
 
 
+class MockFreeBackend(FreeBackend):
+    """FreeBackend's ReAct-text loop, model swapped for the mock's rules:
+    runs the REAL FreeBackend.think (same _react_prompt construction, same
+    _parse_react_step parse) against a stub client whose generate() formats
+    the mock's deterministic decision as one ReAct text step — so the
+    free-tier path gets eval'd offline with no API key."""
+
+    # priced like the production free-tier default, not the OpenAI one
+    model = "gemini-2.0-flash"
+
+    def __init__(self):
+        from llm_client import FreeLLMError  # lazy — same as FreeBackend
+        self._FreeLLMError = FreeLLMError
+        self.last_error = None
+        self._mock = MockBackend()
+        backend = self
+
+        class _StubClient:
+            """The mock's brain behind FreeLLMClient.generate's signature:
+            same args, a ReAct text step instead of a network call."""
+
+            def generate(self, prompt, max_tokens=512, temperature=0):
+                d = backend._mock.think(backend._messages, backend._tools)
+                if d.get("answer"):
+                    return (f"Thought: {d['thought']}\n"
+                            f"Answer: {d['answer']}")
+                a = d["action"]
+                return (f"Thought: {d['thought']}\n"
+                        f"Action: {a['name']}({json.dumps(a['args'])})")
+
+        self.client = _StubClient()
+
+    def think(self, messages, tools):
+        # the stub needs what generate() doesn't receive — held per call
+        # so backends stay re-entrant across interleaved runs
+        self._messages, self._tools = messages, tools
+        try:
+            return super().think(messages, tools)
+        finally:
+            self._messages = self._tools = None
+
+
 class MockReActBackend(MockBackend):
     """The mock's deterministic decisions, reformatted as ReAct text, then
     run through the real Action-line parser — so the prompt-path plumbing
@@ -592,7 +644,8 @@ class ReActAgent:
         while True:
             state["steps"] += 1
             if state["steps"] > self.max_steps:
-                yield self._final(state, "Stopped: max steps exceeded.")
+                yield self._final(state, "Stopped: max steps exceeded.",
+                                   outcome="max_steps")
                 return
             # the kill-switch: a runaway run dies on budget before it
             # dies on steps — distinct event, distinct final line
@@ -605,7 +658,8 @@ class ReActAgent:
                     state,
                     f"Stopped: cost cap exceeded "
                     f"(${self.cost.spent_usd:.4f} of "
-                    f"${self.cost.cap_usd:.4f} budget).")
+                    f"${self.cost.cap_usd:.4f} budget).",
+                    outcome="cost_exceeded")
                 return
             # backend reads the compacted transcript when memory is on;
             # state itself always keeps the full thread
@@ -636,7 +690,8 @@ class ReActAgent:
                       if m["role"] == "action"][-2:]
             if len(recent) == 2 and all(r == action for r in recent + [action]):
                 yield self._final(state, "Stopped: repeating the same action "
-                                         "(loop detected).")
+                                         "(loop detected).",
+                                 outcome="loop_detected")
                 return
             # destructive tools don't just run — stop here and wait for a human
             if action["name"] in self.destructive:
@@ -664,9 +719,16 @@ class ReActAgent:
             yield {"type": "tool_result", "tool": action["name"],
                    "args": action["args"], "result": result}
 
-    def _final(self, state, answer, refused=False):
+    def _final(self, state, answer, refused=False, outcome=None):
         est_tokens = sum(len(str(m.get("content", ""))) for m in
                          state["messages"]) // 4
+        # one JSONL record per finished run — the raw data for per-run
+        # cost tracking (every termination path lands exactly one record)
+        task = state["messages"][0]["content"] if state["messages"] else ""
+        log_run_record(task=task, backend=self.backend, tracker=self.cost,
+                       steps=state["steps"],
+                       outcome=outcome or
+                       ("refused" if refused else "answered"))
         return {"type": "final", "answer": answer, "steps": state["steps"],
                 "est_tokens": est_tokens, "refused": refused,
                 "est_cost_usd": round(self.cost.spent_usd, 6)}
@@ -692,14 +754,16 @@ class ReActAgent:
         state = self._load(thread_id)
         action = state.pop("pending_action", None)
         if action is None:
-            yield self._final(state, "Nothing awaiting approval.")
+            yield self._final(state, "Nothing awaiting approval.",
+                               outcome="nothing_pending")
             return
         if not approved:
             state["messages"].append(
                 {"role": "assistant",
                  "content": "Cancelled: human did not approve."})
             self._save(thread_id, state)
-            yield self._final(state, "Cancelled by human.")
+            yield self._final(state, "Cancelled by human.",
+                               outcome="approval_denied")
             return
         result = self.tool_node.run(action["name"], action["args"])
         state["messages"].append({"role": "action", "action": action})
