@@ -142,6 +142,11 @@ guardrails.py       PII redaction on tool args (email/phone/Aadhaar/PAN/SSN/
 test_guardrails.py  proves injection refusal, poisoned-observation refusal,
                     and pre-execution PII redaction (python3 test_guardrails.py)
 langgraph_agent.py  the same loop as a LangGraph StateGraph — compare with agent.py
+tracing.py          per-step timing traces: think()/tool durations to
+                    logs/traces.jsonl (env-key optional LangSmith push);
+                    off with AGENT_TRACING=off
+slowest_step.py     reads the trace log, prints per-step timings and the
+                    slowest steps per tool (python3 slowest_step.py)
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
 evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
@@ -203,6 +208,17 @@ by cost, not by steps.
 
 `python3 cost.py` proves the kill: a runaway brain that never answers is
 stopped after 2 steps with max_steps still at 50.
+
+## Tracing (slowest-step finder)
+
+Guessing where a run is slow loses to measuring it. Every run records one
+JSON line per step — how long each `think()` and each tool call took —
+to `logs/traces.jsonl` (`AGENT_TRACE_LOG` overrides; `AGENT_TRACING=off`
+disables). Set `LANGSMITH_API_KEY` and the run also ships to LangSmith
+on finish, best-effort: a failed push never breaks the run, and the local
+file stays the source of truth. `python3 slowest_step.py` reads the log
+and names the bottleneck: the latest run's per-step timings, the slowest
+steps overall, and average timings per tool.
 
 ## Honest notes
 

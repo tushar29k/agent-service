@@ -43,6 +43,12 @@ The "brain" is swappable:
 # Every finished run also appends one JSONL record (tokens, cost, steps,
 # outcome) to logs/agent_cost.jsonl (AGENT_COST_LOG overrides) — the raw
 # data behind the evals/cost-vs-quality.md table.
+#
+# Tracing: tracing.py times every think() and every tool call and logs
+# one JSONL record per step to logs/traces.jsonl — per-step timings,
+# always local. Set LANGSMITH_API_KEY and it also pushes the run to
+# LangSmith (best-effort; a failed push never breaks a run).
+# python3 slowest_step.py reads the log and names the slowest step.
 """
 import inspect
 import json
@@ -53,6 +59,7 @@ import sys
 from cost import CostTracker, log_run_record
 from memory import Memory
 from guardrails import Guardrails
+from tracing import Tracer
 from tools import TOOLS, ToolNode
 
 
@@ -605,6 +612,10 @@ class ReActAgent:
         # cost cap: per-run USD budget, the kill-switch for runaway tasks.
         # max_cost=... overrides AGENT_MAX_COST (default $0.10/run)
         self.cost = CostTracker(max_cost)
+        # tracing: per-step timings (think/tool) to logs/traces.jsonl —
+        # local by default, langsmith when LANGSMITH_API_KEY is set,
+        # AGENT_TRACING=off disables entirely
+        self.tracer = Tracer()
         # opt-in: when set, the backend sees the compacted transcript
         # (task + summary + working set) while checkpoints keep the full
         # thread — memory only ever shrinks what the model reads
@@ -665,7 +676,9 @@ class ReActAgent:
             # state itself always keeps the full thread
             msgs = (self.memory.context(state["messages"]) if self.memory
                     else state["messages"])
-            d = self.backend.think(msgs, self.tools)
+            # timed: the trace shows per-step think() durations
+            with self.tracer.step("think", step=state["steps"]):
+                d = self.backend.think(msgs, self.tools)
             self.cost.record_think(self.backend, msgs, d)
             yield {"type": "thought", "thought": d["thought"]}
             if d.get("answer"):
@@ -700,7 +713,11 @@ class ReActAgent:
                 yield {"type": "approval_required", "action": action,
                        "reason": f"'{action['name']}' is destructive"}
                 return
-            result = self.tool_node.run(action["name"], action["args"])
+            # timed too — the trace shows per-tool durations, so the
+            # slowest-step finder can blame search_docs vs calculator
+            with self.tracer.step("tool", tool=action["name"],
+                                  step=state["steps"]):
+                result = self.tool_node.run(action["name"], action["args"])
             # observations can carry injections too (poisoned tool output) —
             # a hit stops the run instead of steering the next thought
             oref = self.guardrails.check_observation(
@@ -729,6 +746,10 @@ class ReActAgent:
                        steps=state["steps"],
                        outcome=outcome or
                        ("refused" if refused else "answered"))
+        # the trace closes on the same path the cost record takes —
+        # every termination gets one summary record
+        self.tracer.finish_run(outcome or
+                               ("refused" if refused else "answered"))
         return {"type": "final", "answer": answer, "steps": state["steps"],
                 "est_tokens": est_tokens, "refused": refused,
                 "est_cost_usd": round(self.cost.spent_usd, 6)}
@@ -736,6 +757,8 @@ class ReActAgent:
     def run(self, thread_id, message):
         """Start a task. Yields events (stream these to the UI)."""
         self.cost.reset()  # the budget is per run, not per agent
+        self.tracer.start_run(thread_id, message,
+                              type(self.backend).__name__)  # timings start here
         state = {"messages": [{"role": "user", "content": message}],
                  "steps": 0}
         # injection check first: a hostile task never reaches the brain
@@ -765,7 +788,10 @@ class ReActAgent:
             yield self._final(state, "Cancelled by human.",
                                outcome="approval_denied")
             return
-        result = self.tool_node.run(action["name"], action["args"])
+        # the post-approval tool run traces too (reopens after the gate)
+        with self.tracer.step("tool", tool=action["name"],
+                              step=state["steps"]):
+            result = self.tool_node.run(action["name"], action["args"])
         state["messages"].append({"role": "action", "action": action})
         state["messages"].append({"role": "observation", "content": result})
         self._save(thread_id, state)
