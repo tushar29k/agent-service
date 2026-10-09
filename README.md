@@ -147,6 +147,10 @@ tracing.py          per-step timing traces: think()/tool durations to
                     off with AGENT_TRACING=off
 slowest_step.py     reads the trace log, prints per-step timings and the
                     slowest steps per tool (python3 slowest_step.py)
+failure_taxonomy.py classifies failed runs into fix-oriented buckets
+                    (bad tool choice / bad tool result / bad prompt /
+                    bad retrieval / budget / refused / denied) — 20 seeded
+                    failures, all classified (python3 failure_taxonomy.py)
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
 evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
