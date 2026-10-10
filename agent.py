@@ -351,8 +351,14 @@ def _parse_react_step(text, tools):
     return {"thought": thought, "action": None, "answer": text.strip()}
 
 
-def _react_prompt(messages, tools):
-    """One prompt: tool list + instructions + the whole transcript so far."""
+def _react_prompt(messages, tools, version="v1"):
+    """One prompt: tool list + instructions + the whole transcript so far.
+
+    The instruction text is versioned — prompts/v1.txt is the original,
+    frozen; new ideas get new files so A/B runs stay reproducible. The
+    prompt-path backends (ReActPromptBackend, FreeBackend) take
+    prompt_version=... or AGENT_PROMPT_VERSION."""
+    from prompts import load_prompt  # local — keeps the module import cheap
     tool_list = "\n".join(
         f"- {t.name}: {t.description.split('.')[0]}. "
         f"Args: {', '.join(inspect.signature(t.func).parameters)}"
@@ -370,19 +376,11 @@ def _react_prompt(messages, tools):
         elif r == "assistant":
             lines.append(f"Assistant: {m['content']}")
     transcript = "\n".join(lines)
-    return (
-        "You are a ReAct agent: answer the user, using tools when a step "
-        "needs one. Tools:\n" + tool_list +
-        "\n\nReply with exactly one step, in this format and nothing else:\n"
-        "Thought: <one line of reasoning>\n"
-        "Action: tool_name({\"arg\": value})\n"
-        "or:\n"
-        "Thought: <one line of reasoning>\n"
-        "Answer: <final answer to the user>\n"
-        "Only use tools from the list above. If a request is destructive "
-        "(like issuing a refund), still pick the tool — a human approval "
-        "gate runs afterwards, that's not your call.\n\n" + transcript +
-        "\n\nYour next step:")
+    # replace, not format — the Action line's {"arg": value} braces would
+    # confuse str.format
+    return (load_prompt(version)
+            .replace("{tool_list}", tool_list)
+            .replace("{transcript}", transcript))
 
 
 class ReActPromptBackend(ModelBackend):
@@ -390,7 +388,7 @@ class ReActPromptBackend(ModelBackend):
     the Action line back into {'name', 'args'} — the same shape as native
     function calling, so the loop runs identically either way."""
 
-    def __init__(self, model=None):
+    def __init__(self, model=None, prompt_version=None):
         try:
             from openai import OpenAI
         except ImportError as e:
@@ -402,11 +400,15 @@ class ReActPromptBackend(ModelBackend):
                 "AGENT_BACKEND=react but no OPENAI_API_KEY in the environment")
         self.client = OpenAI()
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        # which prompts/ version this backend thinks through — default v1
+        self.prompt_version = (prompt_version or
+                               os.environ.get("AGENT_PROMPT_VERSION", "v1"))
 
     def think(self, messages, tools):
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": _react_prompt(messages, tools)}],
+            messages=[{"role": "user", "content": _react_prompt(
+                messages, tools, version=self.prompt_version)}],
             temperature=0)
         return _parse_react_step(resp.choices[0].message.content or "", tools)
 
@@ -489,7 +491,7 @@ class FreeBackend(ModelBackend):
     back to the mock's deterministic rules so the loop (and the approval
     gates) never die mid-demo."""
 
-    def __init__(self):
+    def __init__(self, prompt_version=None):
         from llm_client import FreeLLMClient, FreeLLMError
         client = FreeLLMClient.from_env()
         if client is None:
@@ -499,10 +501,14 @@ class FreeBackend(ModelBackend):
         self._FreeLLMError = FreeLLMError
         self._mock = MockBackend()
         self.last_error = None  # last api failure, if any — on /info
+        # which prompts/ version this backend thinks through — default v1
+        self.prompt_version = (prompt_version or
+                               os.environ.get("AGENT_PROMPT_VERSION", "v1"))
 
     def think(self, messages, tools):
         try:
-            text = self.client.generate(_react_prompt(messages, tools),
+            text = self.client.generate(_react_prompt(
+                messages, tools, version=self.prompt_version),
                                         max_tokens=512, temperature=0)
             self.last_error = None  # recovered
             return _parse_react_step(text or "", tools)
@@ -531,6 +537,8 @@ class MockFreeBackend(FreeBackend):
         self._FreeLLMError = FreeLLMError
         self.last_error = None
         self._mock = MockBackend()
+        # same default as FreeBackend — super().think reads this
+        self.prompt_version = os.environ.get("AGENT_PROMPT_VERSION", "v1")
         backend = self
 
         class _StubClient:

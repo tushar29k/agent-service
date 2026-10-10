@@ -151,6 +151,15 @@ failure_taxonomy.py classifies failed runs into fix-oriented buckets
                     (bad tool choice / bad tool result / bad prompt /
                     bad retrieval / budget / refused / denied) — 20 seeded
                     failures, all classified (python3 failure_taxonomy.py)
+prompts/            versioned ReAct prompt text: v1 is the original (frozen),
+                    v2 the tighter discipline variant (no-repeat rule,
+                    least-powerful tool, quote-the-observation). The
+                    prompt-path backends take prompt_version=... or
+                    AGENT_PROMPT_VERSION
+evals/prompt_ab.py  prompt A/B runner: scores versions on the eval set,
+                    prints a pass/efficiency/lint table and declares a
+                    winner (python3 evals/prompt_ab.py; --backend free
+                    for a true model A/B with LLM_API_KEY)
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
 evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
