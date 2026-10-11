@@ -161,6 +161,12 @@ evals/prompt_ab.py  prompt A/B runner: scores versions on the eval set,
                     winner (python3 evals/prompt_ab.py; --backend free
                     for a true model A/B with LLM_API_KEY)
 service.py          FastAPI: /run streams NDJSON events, /approve resumes
+evals/judge.py      LLM-as-judge: rubric prompt judging task success on 10
+                    hand-labelled runs (evals/judge_cases.yaml), records
+                    judge-human agreement (mock default, --backend free for a
+                    real model via LLM_API_KEY); writes evals/judge-agreement.md
+                    — 90% agreement on the mock, the one miss is a deliberate
+                    substring trap ("224" ≠ "24") the mock can't catch
 evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
 evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
 checkpoints/        example saved conversation states
