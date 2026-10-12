@@ -780,8 +780,12 @@ class ReActAgent:
             return
         yield from self._loop(thread_id, state)
 
-    def approve(self, thread_id, approved):
-        """Resume after an approval gate. approved=True actually runs the action."""
+    def approve(self, thread_id, approved, reason=None):
+        """Resume after an approval gate. approved=True actually runs the
+        action. reason is free text for the audit trail (the CLI approver
+        prompts for it; the /approve endpoint passes it when the caller
+        sends one) — it lands in the thread transcript and the approval
+        decision log, not the user-facing final line."""
         state = self._load(thread_id)
         action = state.pop("pending_action", None)
         if action is None:
@@ -789,9 +793,10 @@ class ReActAgent:
                                outcome="nothing_pending")
             return
         if not approved:
-            state["messages"].append(
-                {"role": "assistant",
-                 "content": "Cancelled: human did not approve."})
+            note = "Cancelled: human did not approve."
+            if reason:
+                note += f" Reason: {reason}"   # why the human said no
+            state["messages"].append({"role": "assistant", "content": note})
             self._save(thread_id, state)
             yield self._final(state, "Cancelled by human.",
                                outcome="approval_denied")

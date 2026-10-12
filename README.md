@@ -44,6 +44,7 @@ pip install -r requirements.txt   # just pyyaml, for the evals
 
 python3 tools.py            # sanity-check the tools (timeouts, errors, destructive flag)
 python3 agent.py            # the demo: an FAQ task, then a refund that hits the approval gate
+python3 approval.py         # the refund demo through the CLI approver (approve/deny on stdin)
 python3 evals/run_eval.py   # the eval suite
 ```
 
@@ -151,6 +152,11 @@ failure_taxonomy.py classifies failed runs into fix-oriented buckets
                     (bad tool choice / bad tool result / bad prompt /
                     bad retrieval / budget / refused / denied) — 20 seeded
                     failures, all classified (python3 failure_taxonomy.py)
+approval.py         CLI approver for destructive tools: prints the pending
+                    tool + args, reads approve/deny + a reason from stdin
+                    (empty = deny), logs the decision to logs/approvals.jsonl,
+                    and resumes the loop — approval_denied closes the run
+                    record (python3 approval.py runs the refund demo through it)
 prompts/            versioned ReAct prompt text: v1 is the original (frozen),
                     v2 the tighter discipline variant (no-repeat rule,
                     least-powerful tool, quote-the-observation). The

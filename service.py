@@ -1,7 +1,7 @@
 """Thin HTTP wrapper around ReActAgent. Run: uvicorn service:app --reload
 
   POST /run      {thread_id, message}  -> streams events as JSON lines
-  POST /approve  {thread_id, approved} -> resumes after an approval gate
+  POST /approve  {thread_id, approved, reason?} -> resumes after an approval gate
   GET  /health
 """
 import json
@@ -33,7 +33,8 @@ def run(body: dict):
 @app.post("/approve")
 def approve(body: dict):
     return StreamingResponse(
-        event_stream(agent.approve(body["thread_id"], body["approved"])),
+        event_stream(agent.approve(body["thread_id"], body["approved"],
+                                   reason=body.get("reason"))),
         media_type="application/x-ndjson")
 
 
