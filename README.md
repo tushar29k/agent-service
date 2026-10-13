@@ -174,7 +174,18 @@ evals/judge.py      LLM-as-judge: rubric prompt judging task success on 10
                     — 90% agreement on the mock, the one miss is a deliberate
                     substring trap ("224" ≠ "24") the mock can't catch
 evals/tasks.yaml    the 12 eval tasks: questions, required tools, expected answers
-evals/run_eval.py   runs each task, asserts right tools + answer content + step budget
+evals/run_eval.py   runs each task, asserts right tools + answer content + step budget,
+                    appends per-backend scores to evals/eval-history.jsonl
+evals/run_adversarial.py
+                    runs the 14 injection/control cases on both mock backends,
+                    appends per-backend scores to evals/eval-history.jsonl
+evals/history.py    record()/load() helpers for the committed eval history log
+evals/eval-history.jsonl
+                    one JSONL row per suite run (tracked in git — this is the
+                    trend's data, unlike gitignored logs/)
+evals/eval_history.py
+                    renders evals/report.html: per-suite SVG pass-rate trends
+                    + a table of every recorded run
 checkpoints/        example saved conversation states
 ```
 

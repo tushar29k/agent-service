@@ -1,0 +1,33 @@
+{"date": "2026-10-05", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "cost-cap commit 9be75cf", "source": "roadmap-backfill"}
+{"date": "2026-10-05", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "cost-cap commit 9be75cf", "source": "roadmap-backfill"}
+{"date": "2026-10-06", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "adversarial set commit 2565f71", "source": "roadmap-backfill"}
+{"date": "2026-10-06", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "adversarial set commit 2565f71", "source": "roadmap-backfill"}
+{"date": "2026-10-06", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "adversarial set commit 2565f71", "source": "roadmap-backfill"}
+{"date": "2026-10-06", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "adversarial set commit 2565f71", "source": "roadmap-backfill"}
+{"date": "2026-10-07", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "cost-vs-quality commit 163668e", "source": "roadmap-backfill"}
+{"date": "2026-10-07", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "cost-vs-quality commit 163668e", "source": "roadmap-backfill"}
+{"date": "2026-10-07", "suite": "tasks", "backend": "free", "passed": 12, "total": 12, "detail": "cost-vs-quality commit 163668e", "source": "roadmap-backfill"}
+{"date": "2026-10-08", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "tracing commit 9cf3cd1", "source": "roadmap-backfill"}
+{"date": "2026-10-08", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "tracing commit 9cf3cd1", "source": "roadmap-backfill"}
+{"date": "2026-10-08", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "tracing commit 9cf3cd1", "source": "roadmap-backfill"}
+{"date": "2026-10-08", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "tracing commit 9cf3cd1", "source": "roadmap-backfill"}
+{"date": "2026-10-09", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "failure taxonomy commit ed84064", "source": "roadmap-backfill"}
+{"date": "2026-10-09", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "failure taxonomy commit ed84064", "source": "roadmap-backfill"}
+{"date": "2026-10-09", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "failure taxonomy commit ed84064", "source": "roadmap-backfill"}
+{"date": "2026-10-09", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "failure taxonomy commit ed84064", "source": "roadmap-backfill"}
+{"date": "2026-10-10", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "prompt versioning commit f020726", "source": "roadmap-backfill"}
+{"date": "2026-10-10", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "prompt versioning commit f020726", "source": "roadmap-backfill"}
+{"date": "2026-10-10", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "prompt versioning commit f020726", "source": "roadmap-backfill"}
+{"date": "2026-10-10", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "prompt versioning commit f020726", "source": "roadmap-backfill"}
+{"date": "2026-10-11", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "LLM-as-judge commit 00a1e8e", "source": "roadmap-backfill"}
+{"date": "2026-10-11", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "LLM-as-judge commit 00a1e8e", "source": "roadmap-backfill"}
+{"date": "2026-10-11", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "LLM-as-judge commit 00a1e8e", "source": "roadmap-backfill"}
+{"date": "2026-10-11", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "LLM-as-judge commit 00a1e8e", "source": "roadmap-backfill"}
+{"date": "2026-10-12", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "approval UX commit 97ee212", "source": "roadmap-backfill"}
+{"date": "2026-10-12", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "approval UX commit 97ee212", "source": "roadmap-backfill"}
+{"date": "2026-10-12", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "approval UX commit 97ee212", "source": "roadmap-backfill"}
+{"date": "2026-10-12", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "approval UX commit 97ee212", "source": "roadmap-backfill"}
+{"date": "2026-10-13", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-13", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-13", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-13", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}

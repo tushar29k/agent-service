@@ -15,8 +15,10 @@ import sys
 import yaml
 
 sys.path.insert(0, ".")
+sys.path.insert(0, "evals")
 from agent import (AnthropicBackend, MockBackend, MockReActBackend,
                    OpenAIBackend, ReActAgent, ReActPromptBackend)
+from history import record
 
 
 def run_task(agent, task):
@@ -105,6 +107,7 @@ def main():
                 print(f"   final answer: {final['answer'][:120]}")
         print(f"{name}: {passed}/{len(tasks)} tasks passed, "
               f"tool-choice accuracy {right_tools}/{len(tasks)}\n")
+        record("tasks", name, passed, len(tasks))
         tool_acc[name] = f"{right_tools}/{len(tasks)}"
     print("tool-choice accuracy — " +
           ", ".join(f"{k}: {tool_acc[k]}" for k in tool_acc))

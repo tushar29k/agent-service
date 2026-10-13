@@ -23,7 +23,9 @@ import sys
 import yaml
 
 sys.path.insert(0, ".")
+sys.path.insert(0, "evals")
 from agent import MockBackend, MockReActBackend, ReActAgent
+from history import record
 
 BACKENDS = {"react": MockReActBackend, "native": MockBackend}
 
@@ -125,6 +127,7 @@ def main():
             if not ok:
                 print(f"   final answer: {answer[:120]}")
         print(f"{name}: {passed}/{len(cases)} adversarial cases passed\n")
+        record("adversarial", name, passed, len(cases))
     if failures:
         print(f"ADVERSARIAL SET FAILED: {failures} case(s) — injection got through")
         sys.exit(1)
