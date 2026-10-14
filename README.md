@@ -180,9 +180,12 @@ evals/run_adversarial.py
                     runs the 14 injection/control cases on both mock backends,
                     appends per-backend scores to evals/eval-history.jsonl
 evals/history.py    record()/load() helpers for the committed eval history log
+evals/ci_gate.py    fails CI when any suite's pass count regresses vs the
+                    committed history
 evals/eval-history.jsonl
                     one JSONL row per suite run (tracked in git — this is the
                     trend's data, unlike gitignored logs/)
+.github/workflows/evals.yml   runs the evals on every push to main
 evals/eval_history.py
                     renders evals/report.html: per-suite SVG pass-rate trends
                     + a table of every recorded run
@@ -205,6 +208,8 @@ Two of the twelve are guardrail tasks: `injection_ignore_instructions` and
 `injection_role_override` must be *refused* — no tools run, the answer starts
 with "Refused", and the refusal lands in `guardrails.jsonl` (the eval harness
 checks the log, not just the answer).
+
+CI runs both eval scripts on every push to `main` (`.github/workflows/evals.yml`) and fails the build if any suite's pass count regresses vs the checked-in `evals/eval-history.jsonl` — `evals/ci_gate.py` compares the fresh run against the committed rows per suite and backend. The history file is also what the eval dashboard (`evals/eval_history.py`) renders, so scores stay honest over time.
 
 ## Guardrails
 

@@ -1,0 +1,41 @@
+# CI: evals on every push/PR to main. Runs the task suite and the
+# adversarial suite on the deterministic mock backends (no keys needed)
+# and fails the build if any suite's pass count regresses vs the
+# checked-in evals/eval-history.jsonl.
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Byte-compile sources
+        run: python -m py_compile $(git ls-files '*.py')
+
+      # the eval runners append to eval-history.jsonl, so the checked-in
+      # rows are copied aside as the regression baseline first
+      - name: Save eval baseline
+        run: cp evals/eval-history.jsonl /tmp/eval-baseline.jsonl
+
+      - name: Run task evals
+        run: python evals/run_eval.py
+
+      - name: Run adversarial evals
+        run: python evals/run_adversarial.py
+
+      - name: Gate on regression
+        run: python evals/ci_gate.py --baseline /tmp/eval-baseline.jsonl --current evals/eval-history.jsonl
