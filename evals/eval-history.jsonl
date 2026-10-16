@@ -39,3 +39,7 @@
 {"date": "2026-10-15", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
 {"date": "2026-10-15", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
 {"date": "2026-10-15", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-16", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-16", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-16", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-16", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
