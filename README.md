@@ -1,5 +1,33 @@
 # agent-service
 
+## Release notes — v2.0 (2026-10-19)
+
+Measured numbers, mock backend, offline — every figure below comes from a
+checked-in script or artifact in this repo, re-run today.
+
+- **Evals: 12/12 per backend** — react and native backends pass the 12-task
+  suite (10 capability + 2 injection-refusal guardrail tasks) via
+  `python3 evals/run_eval.py` (re-run today); the free backend also holds
+  12/12 per the checked-in run in `evals/cost-vs-quality.md` (2026-10-07).
+  Tool-choice accuracy 12/12 on all three.
+- **Adversarial: 14/14 per backend** — all 14 injection/tool-abuse cases
+  refused or flagged with no secret leakage via
+  `python3 evals/run_adversarial.py` (controls answer normally).
+- **Cost per task:** ~$0.0000352 on react/native (gpt-4o-mini pricing) and
+  ~$0.0000234 on the free backend (gemini-2.0-flash pricing) — identical
+  12/12 quality, so the free path costs roughly a third less. Per-task table
+  in `evals/cost-vs-quality.md`.
+- **Latency (honest scope):** these measure agent-loop overhead, not model
+  latency — the mock brain answers near-instantly. p99 per run at 16 parallel
+  threads: **308.6 ms** (react), **444.2 ms** (native), from the 2026-10-15 run
+  in `evals/concurrency-results.md`. Within a single run, the slowest step is
+  `python_exec` (~48 ms) — see `slowest_step.py`.
+
+Trends and history: `evals/eval-history.jsonl` (appended on every run; the CI
+gate fails the build if any score regresses), rendered by
+`python3 evals/eval_history.py`. Docs: `docs/` (architecture decisions) and
+`docs/production-checklist.md`.
+
 A ReAct-style agent you can actually run, break, and fix — no LLM API key needed.
 
 ## Live demo

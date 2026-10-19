@@ -51,3 +51,13 @@
 {"date": "2026-10-18", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
 {"date": "2026-10-18", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
 {"date": "2026-10-18", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "tasks", "backend": "react", "passed": 12, "total": 12, "detail": "", "source": "live"}
+{"date": "2026-10-19", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
