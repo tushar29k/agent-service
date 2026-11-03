@@ -81,3 +81,7 @@
 {"date": "2026-11-03", "suite": "tasks", "backend": "native", "passed": 12, "total": 12, "detail": "", "source": "live"}
 {"date": "2026-11-03", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
 {"date": "2026-11-03", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-11-03", "suite": "scenarios", "backend": "react", "passed": 5, "total": 11, "detail": "attack_succeeded=5, blocked=2, completed=3, false_refusal=1", "source": "live"}
+{"date": "2026-11-03", "suite": "scenarios", "backend": "native", "passed": 5, "total": 11, "detail": "attack_succeeded=5, blocked=2, completed=3, false_refusal=1", "source": "live"}
+{"date": "2026-11-03", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-11-03", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
