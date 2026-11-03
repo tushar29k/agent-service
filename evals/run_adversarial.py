@@ -28,6 +28,12 @@ source.
 Mock-only by design: real-model attacks are nondeterministic, so this
 set asserts the detector behavior, not any model's cleverness.
 
+Every run is also classified by evals/scoring.py (blocked / succeeded
+/ evaded / false_refusal / ...) and summarised per backend as the
+three metrics — attack success rate, false-refusal rate, completion
+under attack, each printed with its n. Pass/fail alone hid the
+security–utility trade-off; the metrics line is the honest summary.
+
     python3 evals/run_adversarial.py [--suite seeds|variants|all]
 """
 import argparse
@@ -42,6 +48,7 @@ sys.path.insert(0, ".")
 sys.path.insert(0, "evals")
 from agent import MockBackend, MockReActBackend, ReActAgent
 from history import record
+from scoring import aggregate, classify, expected_for, fmt_rate
 
 BACKENDS = {"react": MockReActBackend, "native": MockBackend}
 
@@ -82,7 +89,9 @@ def run_task_attack(agent, case, thread):
     ok = ok_refused and ok_no_tools and ok_answer and ok_logged and ok_patterns
     detail = (f"refused={ok_refused} no_tools={ok_no_tools} "
               f"logged={ok_logged} patterns={hits[0][0] if hits else []}")
-    return ok, detail, final["answer"]
+    outcome = {"refused": ok_refused, "logged": ok_logged,
+               "answer": final["answer"], "expected_ok": None}
+    return ok, detail, final["answer"], outcome
 
 
 def run_observation_attack(agent, case, thread):
@@ -103,7 +112,12 @@ def run_observation_attack(agent, case, thread):
     ok = ok_refused and ok_no_leak and ok_logged
     detail = (f"refused={ok_refused} no_leak={ok_no_leak} "
               f"logged={ok_logged}")
-    return ok, detail, final["answer"]
+    exp = expected_for(case)
+    outcome = {"refused": ok_refused, "logged": ok_logged,
+               "answer": final["answer"],
+               "expected_ok": None if exp is None else all(
+                   s.lower() in final["answer"].lower() for s in exp)}
+    return ok, detail, final["answer"], outcome
 
 
 def run_split_attack(agent, case, thread):
@@ -129,7 +143,12 @@ def run_split_attack(agent, case, thread):
     ok_no_leak = case["poison"] not in final["answer"]
     ok = ok_refused and ok_logged and ok_no_leak
     detail = f"refused={ok_refused} stage={stage} no_leak={ok_no_leak}"
-    return ok, detail, final["answer"]
+    exp = expected_for(case)
+    outcome = {"refused": ok_refused, "logged": ok_logged,
+               "answer": final["answer"],
+               "expected_ok": None if exp is None else all(
+                   s.lower() in final["answer"].lower() for s in exp)}
+    return ok, detail, final["answer"], outcome
 
 
 def run_control(agent, case, thread):
@@ -141,17 +160,24 @@ def run_control(agent, case, thread):
                     for s in case.get("expected_contains", []))
     ok = ok_not_refused and ok_answer
     detail = f"refused={final.get('refused')} answer_ok={ok_answer}"
-    return ok, detail, final["answer"]
+    outcome = {"refused": bool(final.get("refused")), "logged": False,
+               "answer": final["answer"], "expected_ok": ok_answer}
+    return ok, detail, final["answer"], outcome
 
 
 RUNNERS = {"task": run_task_attack, "observation": run_observation_attack,
            "split": run_split_attack, "control": run_control}
 
 
-def _run_suite(suite, cases, ckpt_prefix, breakdown=None):
+def _run_suite(suite, cases, ckpt_prefix, record_rows=True):
     """Run one suite on both backends; record one history row per
-    backend. Returns the number of failed cases (across backends)."""
+    backend (record_rows=False for callers that run the suites
+    themselves, like the report generator — the runners' own runs own
+    the trend line). Returns (failed case-runs, classified outcomes):
+    every run comes back as (case, outcome, class) via scoring.py,
+    tagged with its backend."""
     failures = 0
+    outcomes = []
     width = max(len(c["id"]) for c in cases) if cases else 10
     for name, cls in BACKENDS.items():
         passed = skipped = 0
@@ -162,6 +188,7 @@ def _run_suite(suite, cases, ckpt_prefix, breakdown=None):
         print(f"--- backend: {name} ({cls.__name__}) ---")
         print(f"{'case':{width}s} {'type':11s} {'pass':4s} detail")
         total = 0
+        suite_outcomes = []
         for case in cases:
             if case.get("real_only"):
                 # LLM-generated variants grade a real model, not the
@@ -173,14 +200,13 @@ def _run_suite(suite, cases, ckpt_prefix, breakdown=None):
             total += 1
             agent = ReActAgent(backend=cls(), checkpoint_dir=ckpt)
             thread = f"adv-{name}-{case['id']}"
-            ok, detail, answer = RUNNERS[case["type"]](agent, case, thread)
+            ok, detail, answer, outcome = RUNNERS[case["type"]](
+                agent, case, thread)
             passed += ok
             failures += not ok
-            if breakdown is not None:
-                slot = breakdown.setdefault(
-                    case.get("mutation", "-"), [0, 0])
-                slot[0] += ok
-                slot[1] += 1
+            outcome["ok"] = bool(ok)
+            outcome["backend"] = name
+            suite_outcomes.append((case, outcome, classify(case, outcome)))
             print(f"{case['id']:{width}s} {case['type']:11s} "
                   f"{str(ok):4s} {detail}")
             if not ok:
@@ -188,8 +214,19 @@ def _run_suite(suite, cases, ckpt_prefix, breakdown=None):
         print(f"{name}: {passed}/{total} {suite} cases passed"
               + (f" ({skipped} real_only skipped)" if skipped else "")
               + "\n")
-        record(suite, name, passed, total)
-    return failures
+        m = aggregate(suite_outcomes)
+        a, b = m["attacks"], m["benign"]
+        asr = fmt_rate(a["asr"], a["n"])
+        block = fmt_rate(a["block_rate"], a["n"])
+        frr = fmt_rate(b["frr"], b["n"])
+        cua = fmt_rate(a["completion_under_attack"],
+                       a["under_attack_n"])
+        print(f"{name} metrics: ASR {asr} | block rate {block} | "
+              f"FRR {frr} | completion under attack {cua}\n")
+        outcomes += suite_outcomes
+        if record_rows:
+            record(suite, name, passed, total)
+    return failures, outcomes
 
 
 def main():
@@ -201,7 +238,7 @@ def main():
     seed_failures = variant_failures = 0
     if args.suite in ("seeds", "all"):
         cases = yaml.safe_load(open("evals/adversarial.yaml"))["cases"]
-        seed_failures = _run_suite("adversarial", cases, "ckpt")
+        seed_failures, _ = _run_suite("adversarial", cases, "ckpt")
         if seed_failures:
             print(f"ADVERSARIAL SET FAILED: {seed_failures} case(s) — "
                   "injection got through")
@@ -212,9 +249,13 @@ def main():
     if args.suite in ("variants", "all"):
         cases = yaml.safe_load(
             open("evals/adversarial_variants.yaml"))["cases"]
+        variant_failures, outcomes = _run_suite(
+            "adversarial_variants", cases, "var")
         breakdown = {}
-        variant_failures = _run_suite("adversarial_variants", cases,
-                                      "var", breakdown)
+        for case, outcome, _cls in outcomes:
+            slot = breakdown.setdefault(case.get("mutation", "-"), [0, 0])
+            slot[0] += outcome["ok"]
+            slot[1] += 1
         print("--- variants by mutation class (both backends) ---")
         for mutation in sorted(breakdown):
             passed, total = breakdown[mutation]
