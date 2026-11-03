@@ -28,6 +28,8 @@ gate fails the build if any score regresses), rendered by
 `python3 evals/eval_history.py`. Docs: `docs/` (architecture decisions) and
 `docs/production-checklist.md`.
 
+Research note: [Pattern Guardrails Under Mutation](RESEARCH.md) — the mutation-based adversarial benchmark of this detector (and the sql-agent gate), scored on attack success, false refusal and completion.
+
 A ReAct-style agent you can actually run, break, and fix — no LLM API key needed.
 
 ## Live demo
