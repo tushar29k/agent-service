@@ -186,7 +186,9 @@ def write_outputs(meta, rows, errors, stopped):
         f"Generated {meta['date']} by `evals/run_real_adversarial.py`. "
         f"Backend: **{meta['model']}** (Google AI Studio free tier, "
         "stored connector credential), ReAct prompt v1, temperature 0. "
-        "Scored with metrics definitions v1, frozen in "
+        + (f"Model note: {meta['model_note']} " if meta.get(
+            "model_note") else "")
+        + "Scored with metrics definitions v1, frozen in "
         "`evals/scoring.py` — the same classification as the mock "
         "report. Mock results live in `adversarial-report.md`; real "
         "and mock numbers are kept in separate files on purpose.",
@@ -278,6 +280,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None,
                     help="run only the first N slice cases (smoke)")
+    ap.add_argument("--model", default=None,
+                    help="override the project-default model "
+                         "(real_backend.DEFAULT_MODEL)")
+    ap.add_argument("--model-note", default=None,
+                    help="why a non-default model ran — printed in "
+                         "the results header")
     args = ap.parse_args()
 
     seeds, encoded = load_slice()
@@ -287,7 +295,7 @@ def main():
         cases = cases[:args.limit]
     shutil.rmtree(CKPT, ignore_errors=True)
 
-    client = SurrogateGeminiClient()
+    client = SurrogateGeminiClient(model=args.model)
     backend = GeminiRealBackend(client)
     rows, errors = [], []
     stopped = None
@@ -324,7 +332,8 @@ def main():
                   f"ERROR {type(e).__name__}: {e}", flush=True)
 
     meta = {"date": date.today().isoformat(), "model": client.label,
-            "slice_cases": len(cases), "calls": client.calls}
+            "slice_cases": len(cases), "calls": client.calls,
+            "model_note": args.model_note}
     write_outputs(meta, rows, errors, stopped)
     m = aggregate([(c, o, k) for c, o, k, _ in rows])
     a = m["attacks"]

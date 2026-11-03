@@ -95,8 +95,14 @@ class SurrogateGeminiClient:
         req = urllib.request.Request(
             url, data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"})
+        # 5xx and dropped connections get real retries with backoff —
+        # gemini-3.8-flash sheds load with 503s and outright
+        # disconnects when demand spikes, and one retry wasn't
+        # enough. 429 and 401/403 never retry (quota wall / auth
+        # verdict — see the class docstrings).
+        backoff = (5, 15, 30)
         last = None
-        for attempt in (0, 1):
+        for attempt in range(len(backoff) + 1):
             self._pace()
             try:
                 self.calls += 1
@@ -119,18 +125,17 @@ class SurrogateGeminiClient:
                         f"stored credential refused (HTTP {e.code}): "
                         f"{detail[:160]}") from None
                 last = e
-                # one retry on 5xx only — a transient server error is
-                # not a quota wall and not an auth verdict
-                if e.code in (500, 502, 503, 504) and attempt == 0:
-                    time.sleep(5)
+                if e.code in (500, 502, 503, 504) \
+                        and attempt < len(backoff):
+                    time.sleep(backoff[attempt])
                     continue
                 raise FreeLLMError(
                     f"gemini rejected the request (HTTP {e.code}): "
                     f"{detail[:160]}") from None
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 last = e
-                if attempt == 0:
-                    time.sleep(5)
+                if attempt < len(backoff):
+                    time.sleep(backoff[attempt])
                     continue
                 raise FreeLLMError(
                     f"gemini unreachable ({type(e).__name__})") from None
