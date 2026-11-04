@@ -14,6 +14,14 @@
    "runs_completed": 0,
    "min_interval_s": 12.0,
    "stopped": "aborted before completion: every API call failed (HTTP 400 HTML error pages / unexpected response shapes) and a confirmation probe then hit HTTP 429 \u2014 the free-tier quota for this credential is exhausted for today. 0 of 60 encoded variants completed; the run was stopped, not retried, per the stop rule."
+  },
+  "followup_encoded_2026_11_04": {
+   "date": "2026-11-04",
+   "model": "gemini:gemini-3.5-flash (stored credential)",
+   "cases": 60,
+   "runs_completed": 0,
+   "smoke_probe": "single tiny probe (Reply with exactly: ok, max_tokens=16) failed with FreeLLMError: gemini returned an unexpected response shape (candidate-less payload, no 401/403) \u2014 same degraded shape as 2026-11-03 afternoon pre-429",
+   "stopped": "run not started: smoke probe failed, so the slice was not attempted; no further probes, no retries, no mock substitution. Quota appears not yet reset at 08:00 IST."
   }
  },
  "stopped": "stopped at seed case 14 of the 74-case slice (adv_control_mode): gemini quota/rate limit (HTTP 429) after 6 API calls at ~15 RPM pacing \u2014 run stopped, partial results stand",

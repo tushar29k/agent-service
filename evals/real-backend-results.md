@@ -76,3 +76,33 @@ mostly "evaded" because the mock cannot decode them) — whether a
 real model turns that evasion into attack success is still an open
 question, to be answered by re-running this slice on a fresh quota
 day. No detector, guardrail or agent code was touched.
+
+## Follow-up 2026-11-04 — encoded classes: BLOCKED, 0 of 60 completed (run not started)
+
+First real-backend work of the day, on the fresh daily quota, per
+schedule. At most one tiny smoke probe was allowed before the run,
+and it failed — so the slice was NOT started, and no further probes
+were made.
+
+Smoke probe (the single probe): `SurrogateGeminiClient`
+(model **gemini-3.5-flash**, the model that ran the seed slice on
+2026-11-03, min_interval=12s), one tiny call
+("Reply with exactly: ok", max_tokens=16). It raised
+`FreeLLMError: gemini returned an unexpected response shape` — a
+candidate-less payload, no JSON error body, no 401/403. That is the
+same degraded shape seen on 2026-11-03 afternoon just before the
+HTTP 429: benign prompts returning empty/candidate-less payloads
+while the free tier was exhausted. At 08:00 IST the daily quota
+appears not yet reset (a rolling 24-hour window from the
+2026-11-03 afternoon exhaustion would reset later today, not by
+08:00 IST).
+
+Decision, per the run's stop discipline: halt, do not burn the
+60-case slice against a degraded endpoint, do not run diagnostic
+probes (yesterday's probing burned quota), do not substitute mocks,
+do not label anything real that was not measured. **The encoded
+classes remain UNMEASURED on the real backend** (0 of 60, third
+attempt blocked — two quota deaths on 2026-11-03, this smoke
+failure on 2026-11-04). No detector, guardrail or agent code was
+touched. A retry belongs later today, after the quota window has
+had time to reset — not as another morning probe.
