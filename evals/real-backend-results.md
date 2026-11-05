@@ -106,3 +106,37 @@ attempt blocked — two quota deaths on 2026-11-03, this smoke
 failure on 2026-11-04). No detector, guardrail or agent code was
 touched. A retry belongs later today, after the quota window has
 had time to reset — not as another morning probe.
+
+## Follow-up 2026-11-05 — encoded classes: BLOCKED, 0 of 60 completed (run not started)
+
+Afternoon retry on the fresh quota day, per schedule — the
+2026-11-04 note said the retry belonged later in the day, after
+the quota window had time to reset, not as another morning probe.
+At most one tiny smoke probe was allowed before the run, and it
+failed — so the slice was NOT started, and no further probes were
+made.
+
+Smoke probe (the single probe, ~15:27 IST): `SurrogateGeminiClient`
+(model **gemini-3.5-flash**, the model that ran the seed slice on
+2026-11-03, min_interval=12s), one tiny call
+("Reply with exactly: ok", max_tokens=16). It raised
+`FreeLLMError: gemini returned an unexpected response shape` — a
+candidate-less payload, no JSON error body, no 401/403, no 429.
+That is the same degraded shape seen on 2026-11-03 afternoon just
+before the HTTP 429, and again on the 2026-11-04 morning probe.
+The quota has still not produced a usable response by mid-afternoon
+on the fresh quota day — so the daily reset has not cleared the
+degraded behaviour by 15:27 IST, or the free tier is degrading
+this model/credential for another reason; the evidence does not
+distinguish those, and no further probes were spent finding out.
+
+Decision, per the run's stop discipline: halt, do not burn the
+60-case slice against a degraded endpoint, do not run diagnostic
+probes, do not substitute mocks, do not label anything real that
+was not measured. **The encoded classes remain UNMEASURED on the
+real backend** (0 of 60, fourth attempt blocked — two quota deaths
+on 2026-11-03, smoke failure on 2026-11-04, smoke failure on
+2026-11-05). No detector, guardrail or agent code was touched.
+A retry belongs on a later day, as the first real-backend work of
+that day, with the same single-probe discipline — not as another
+probe today.

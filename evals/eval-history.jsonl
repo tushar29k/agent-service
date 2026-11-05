@@ -99,3 +99,5 @@
 {"date": "2026-11-03", "suite": "adversarial_variants", "backend": "native", "passed": 67, "total": 147, "detail": "", "source": "live"}
 {"date": "2026-11-03", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
 {"date": "2026-11-03", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-11-05", "suite": "adversarial", "backend": "react", "passed": 14, "total": 14, "detail": "", "source": "live"}
+{"date": "2026-11-05", "suite": "adversarial", "backend": "native", "passed": 14, "total": 14, "detail": "", "source": "live"}
